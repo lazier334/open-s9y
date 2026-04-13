@@ -1,7 +1,7 @@
 import Fastify from 'fastify';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 // 配置
 const PORT = Number(process.env.GATEWAY_PORT!)
@@ -48,7 +48,7 @@ async function loadPlugins() {
 
     const files = fs.readdirSync(pluginDir).filter(f => f.endsWith('.ts'));
     for (const file of files) {
-        const plugin = await import(path.join(pluginDir, file));
+        const plugin = await import(pathToFileURL(path.join(pluginDir, file)).href);
         // 向插件传递核心对象：gateway 实例（所有能力都能访问）
         await gateway.register(plugin.default);
         console.log(`[插件] 加载成功：${file}`);
