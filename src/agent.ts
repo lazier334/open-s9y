@@ -37,7 +37,7 @@ const CONFIG = {
     /** agent的id, 用于打印日志 */
     agentId: 0,
     /** 网关启动命令 */
-    GATEWAY_CMD: process.env.GATEWAY_CMD || 'npx tsx src/gateway.ts',
+    GATEWAY_CMD: process.env.GATEWAY_CMD || 'node --env-file=.env src/gateway.ts',
     /** 网关重启策略: never/on-failure/always */
     GATEWAY_RESTART_POLICY: process.env.GATEWAY_RESTART_POLICY || 'on-failure',
     /** 网关日志路径（与系统错误日志分开） */
@@ -165,9 +165,9 @@ interface cmdData {
  * // 空参数
  * runCmd().catch(err => console.log('err=>', err))
  * // 完整参数
- * runCmd('npx tsx src/gateway.ts', (d) => console.log('--->', '' + d), (d) => console.log('===>', '' + d)).catch(err => console.log('err=>', err))
+ * runCmd('node --env-file=.env src/gateway.ts', (d) => console.log('--->', '' + d), (d) => console.log('===>', '' + d)).catch(err => console.log('err=>', err))
  */
-function gatewayRunCmd(cmd: string | Array<any> = 'npx tsx src/gateway.ts', stdout: (stream: Stream.Readable, data: cmdData) => void = () => { }, stderr: (stream: Stream.Readable, data: cmdData) => void = () => { }): Promise<cmdData> {
+function gatewayRunCmd(cmd: string | Array<any> = 'node --env-file=.env src/gateway.ts', stdout: (stream: Stream.Readable, data: cmdData) => void = () => { }, stderr: (stream: Stream.Readable, data: cmdData) => void = () => { }): Promise<cmdData> {
     return new Promise((resolve, reject) => {
         let child: ChildProcess | null = null;
         let data: cmdData = {
@@ -227,7 +227,7 @@ function gatewayRunCmd(cmd: string | Array<any> = 'npx tsx src/gateway.ts', stdo
 
 /** 网关启动配置选项 */
 interface GatewayOptions {
-    /** 启动命令，默认 'npx tsx src/gateway.ts' */
+    /** 启动命令，默认 'node --env-file=.env src/gateway.ts' */
     command?: string | string[];
     /** 重启策略: 'never' | 'on-failure' | 'always' | number(次数) */
     restartPolicy?: 'never' | 'on-failure' | 'always' | number;
@@ -262,8 +262,8 @@ function createGatewayStarterTool(): any {
                 properties: {
                     command: {
                         type: 'string',
-                        description: '启动命令，如 "npx tsx src/gateway.ts"',
-                        default: 'npx tsx src/gateway.ts'
+                        description: '启动命令，如 "node --env-file=.env src/gateway.ts"',
+                        default: 'node --env-file=.env src/gateway.ts'
                     },
                     restart_policy: {
                         type: 'string',
@@ -287,7 +287,7 @@ function createGatewayStarterTool(): any {
 async function gatewayStarter(
     agent?: AutoHealingAgent, options: GatewayOptions = {}): Promise<cmdData> {
     const {
-        command = 'npx tsx src/gateway.ts',
+        command = 'node --env-file=.env src/gateway.ts',
         restartPolicy = 'on-failure',
         minRestartInterval = 5000
     } = options;

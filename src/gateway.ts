@@ -1,10 +1,8 @@
 import Fastify from 'fastify';
-import { config } from 'dotenv';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-config();
 // 配置
 const PORT = Number(process.env.GATEWAY_PORT!)
 
@@ -13,6 +11,7 @@ const gateway = Fastify({
     logger: false,
     forceCloseConnections: true
 });
+// XXX 测试完成后需要将这2个接口删除
 gateway.get('/exit', async () => {
     process.exit(0);
     return { status: 'ok', type: 'exit' };
