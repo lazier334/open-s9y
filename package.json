@@ -18,8 +18,8 @@
   },
   "main": "src/agent.ts",
   "scripts": {
-    "start": "node --env-file=.env src/agent.ts",
-    "dev": "node --env-file=.env src/agent.ts --dev",
+    "start": "node --env-file=.env agent.ts",
+    "dev": "node --env-file=.env agent.ts --dev",
     "gateway": "node --env-file=.env src/gateway.ts"
   },
   "dependencies": {

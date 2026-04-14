@@ -261,13 +261,13 @@ async function gatewayStarter(
 
             // 构造错误上下文（取最后50条日志）
             const recentLogs = (errorData?.logs || []).slice(-50).join('\n');
-            const errorMsg = `网关异常退出，最近日志:\n${recentLogs.slice(-10000)}`;
+            const errorMsg = `网关重启后异常退出，最近日志:\n${recentLogs.slice(-10000)}`;
 
             // 距离最后一次重启超过20秒才清空上下文
             if (lastRestartTime < (Date.now() - 20 * 1000)) agent.clean();
 
             // 尝试修复
-            const fixed = await agent.fixError(new Error('Gateway crashed'), errorMsg);
+            const fixed = await agent.input(errorMsg);
 
             if (!fixed) {
                 agent.error('💥 网关修复失败，放弃重启');
@@ -293,7 +293,7 @@ async function gatewayStarter(
             }
 
             lastRestartTime = Date.now();
-            agent.log('🔄 修复完成，准备重启...');
+            agent.log('🔄 已尝试处理，准备重启网关...');
 
             // 递归重启
             return startOnce();
@@ -531,6 +531,7 @@ async function testChat() {
 
 // ==================== Agent 核心 ====================
 // #region Agent 核心
+type inputResult = { re: string, callResults: { [key: string]: any } }
 class AutoHealingAgent {
     private messages: Message[] = [];
     // 防止并发冲突
@@ -563,9 +564,10 @@ class AutoHealingAgent {
      * 修复错误
      * @param msg 消息内容或者Error对象
      * @param context 当是Error对象的时候可以附加上下文说明
+     * @param [verify=(result) => result.callResults['execute_command']?.success] 默认运行了cmd并且运行成功就判定为成功
      * @returns 返回true即修复成功
      */
-    async fixError(msg: string | Error, context?: string): Promise<boolean> {
+    async fixError(msg: string | Error, context?: string, verify: (result: inputResult) => boolean | Promise<boolean> = (result) => result.callResults['execute_command']?.success): Promise<boolean> {
         if (this.isProcessing) {
             this.log('⏳ 正在处理其他任务，跳过');
             return false;
@@ -585,7 +587,7 @@ class AutoHealingAgent {
             try {
                 this.log(`🤖 ${CONFIG.MODEL}尝试修复中... (${i + 1}/${CONFIG.MAX_TURNS})`);
                 const result = await this.input('请继续');
-                if (result.callResults['execute_command']?.success) {
+                if (await verify(result)) {
                     this.log('✅ 修复成功');
                     return true;
                 }
@@ -652,7 +654,7 @@ class AutoHealingAgent {
      * @param txt 输入的消息
      * @returns 
      */
-    async input(txt: string): Promise<{ re: string, callResults: { [key: string]: any } }> {
+    async input(txt: string): Promise<inputResult> {
         try { this.stop(); } catch (err) { }
         this.log('🧑:', txt);
         this.messages.push({ role: 'user', content: txt });
@@ -838,10 +840,11 @@ interface ToolWarp {
 }
 
 /** 读取文件 */
-async function readFile(filePath: string): Promise<string> {
+async function readFile(filePath: string | { path: string }): Promise<string> {
     try {
+        const fp = typeof filePath === 'object' ? filePath.path : filePath;
         // 安全检查：只允许读取当前目录下文件
-        const resolved = path.resolve(filePath);
+        const resolved = path.resolve(fp);
         if (!resolved.startsWith(CONFIG.SECURITY.ALLOWED_ROOT)) {
             return '错误: 路径超出项目范围';
         }
@@ -917,7 +920,7 @@ export function config() {
         /** 轮询间隔(ms) */
         POLL_INTERVAL: 2000,
         /** 网关启动命令 */
-        GATEWAY_CMD: 'node --env-file=.env src/gateway.ts',
+        GATEWAY_CMD: 'npm run gateway',
         /** 网关重启策略: never/on-failure/always */
         GATEWAY_RESTART_POLICY: 'on-failure' as string,
         /** 网关日志路径（与系统错误日志分开） */
@@ -993,11 +996,11 @@ export function config() {
    - 命令受白名单限制，危险操作会被拦截
 
 2. **read_file** - 读取配置文件或源代码
-   - 用于查看 package.json、tsconfig.json、日志文件或源码分析错误
+    - 用于查看 package.json、tsconfig.json、日志文件或源码分析错误
 
 3. **start_gateway_guardian** - 启动/重启网关进程（仅在需要启动新实例时使用）
-   - 启动命令: ${CONFIG.GATEWAY_CMD}
-   - 支持重启策略: never/on-failure/always
+    - 启动命令: ${CONFIG.GATEWAY_CMD}
+    - 支持重启策略: never/on-failure/always
 
 ## 常见错误诊断与修复策略
 
@@ -1018,9 +1021,8 @@ export function config() {
 6. 如果修复成功，系统会自动重启网关；如果失败，报告失败原因
 
 ## 重要原则
+- 每次尝试后系统都会尝试重启网关
 - 优先尝试自动修复，不要过早放弃
-- 修复命令必须是原子操作（单条命令完成一个修复动作）
-- 如果连续 3 次修复失败，停止尝试并报告严重问题
 - 不要修改系统级配置或访问工作目录外的文件`;
     // 系统 agent 提示词
     CONFIG.SELF_HEALING_SYSTEM_PROMPT = `你是 Node.js 运行时自愈 Agent (Self-Healing Agent)，负责捕获并修复应用程序运行时的未捕获异常和 Promise 拒绝。
