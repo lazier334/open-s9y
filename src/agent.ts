@@ -12,216 +12,17 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Stream } from "node:stream";
 
-// ==================== 配置 ====================
-// #region 配置
-const CONFIG = {
-    /** ai的key */
-    API_KEY: process.env.OPENAI_API_KEY || '',
-    /** ai的基础url */
-    BASE_URL: (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, ''),
-    /** ai的模型名称 */
-    MODEL: process.env.MODEL || 'deepseek-chat',
-    /** ai最大思考次数 */
-    MAX_TURNS: Number(process.env.MAX_TURNS) || 10,
-    /** shell执行器 */
-    SHELL: os.platform() === 'win32' ? 'cmd.exe' : '/bin/bash',
-    /** shell执行器的标识 */
-    SHELL_FLAG: os.platform() === 'win32' ? '/c' : '-c',
-    /** 命令执行超时60秒 */
-    TIMEOUT: 60000,
-    /** 输入文件路径 */
-    FILE_POLLER: process.env.FILE_POLLER == 'true',
-    /** 输入文件路径 */
-    INPUT_FILE: process.env.AGENT_INPUT || './agent-input.txt',
-    /** 轮询间隔(ms) */
-    POLL_INTERVAL: 2000,
-    /** agent的id, 用于打印日志 */
-    agentId: 0,
-    /** 网关启动命令 */
-    GATEWAY_CMD: process.env.GATEWAY_CMD || 'node --env-file=.env src/gateway.ts',
-    /** 网关重启策略: never/on-failure/always */
-    GATEWAY_RESTART_POLICY: process.env.GATEWAY_RESTART_POLICY || 'on-failure',
-    /** 网关日志路径（与系统错误日志分开） */
-    GATEWAY_LOGS_PATH: process.env.GATEWAY_LOGS_PATH || './logs/gateway-crash.log',
-};
-// #endregion 配置
-
-// ==================== 颜色 ====================
-// #region 颜色
-const COLORS = [
-    '\x1b[32m', // 1: 绿色 (Green)
-    '\x1b[35m', // 2: 洋红 (Magenta)
-    '\x1b[34m', // 3: 蓝色 (Blue)
-    '\x1b[33m', // 4: 黄色 (Yellow)  
-    '\x1b[31m', // 5: 红色 (Red)
-    '\x1b[36m', // 6: 青色 (Cyan)
-    '\x1b[90m', // 7: 亮黑 (Gray)
-];
-const COLORS_RESET = '\x1b[0m';
-function getColor(id: number): string {
-    return COLORS[id % COLORS.length] || COLORS[COLORS.length - 1];
+// #region 启动
+// 读取配置
+const CONFIG = readAllConfig();
+if (import.meta.main) {
+    // 启动主程序
+    main();
 }
-// #endregion 颜色
-
-// ==================== 安全策略（硬限制） ====================
-// #region 安全策略（硬限制）
-const SECURITY = {
-    // 允许的基础命令（完全自动模式下必须严格）
-    ALLOWED_COMMANDS: [
-        'npm', 'yarn', 'pnpm', 'npx', 'node', 'tsc',
-        'rm', 'del', 'rmdir', 'mkdir', 'touch', 'cp', 'mv', 'xcopy', 'copy',
-        'git', 'cat', 'ls', 'dir', 'echo', 'cd', 'pwd', 'clear', 'cls'
-    ],
-
-    // 危险模式黑名单（正则）
-    DANGEROUS_PATTERNS: [
-        /rm\s+-rf\s*\/[ ]*$/,           // rm -rf / 或 rm -rf /*
-        /mkfs\.?/,                      // 格式化
-        /dd\s+if=/,                     // 磁盘操作
-        />[ ]*\/etc\//,                 // 覆盖系统文件
-        /curl.+pipe.+sh/,               // curl | sh 管道执行
-        /wget.+http.*\.(sh|bat|exe)/,   // 下载可执行文件
-        /\.\.[\/\\]/,                   // 上级目录遍历
-        /%SYSTEMROOT%|C:\\Windows/i,    // Windows系统目录
-        /sudo\s+rm/,                    // 特权删除
-        /:(){ :|:& };:/                 // Fork炸弹
-    ],
-
-    // 允许的操作目录（必须在此范围内）
-    ALLOWED_ROOT: process.cwd()
-};
-// #endregion 安全策略（硬限制）
-
-// ==================== 定义提示词 ====================
-// #region 定义提示词
-const GATEWAY_SYSTEM_PROMPT = `你是网关守护 Agent (Gateway Guardian)，专门负责 Node.js 网关进程的启动、监控和自动修复。
-
-## 当前环境
-- 操作系统: ${os.platform()}
-- 工作目录: ${SECURITY.ALLOWED_ROOT}
-- Shell: ${CONFIG.SHELL}
-- 允许的基础命令: ${SECURITY.ALLOWED_COMMANDS.join(', ')}
-
-## 你的职责
-当网关进程崩溃或异常退出时，你必须分析错误日志，诊断根本原因，并调用合适的工具进行修复。
-
-## 可用工具
-
-1. **execute_command** - 执行系统命令修复问题
-   - 用于安装依赖、编译代码、清理缓存、终止占用端口的进程等
-   - 命令受白名单限制，危险操作会被拦截
-
-2. **read_file** - 读取配置文件或源代码
-   - 用于查看 package.json、tsconfig.json、日志文件或源码分析错误
-
-3. **start_gateway_guardian** - 启动/重启网关进程（仅在需要启动新实例时使用）
-   - 启动命令: node --env-file=.env src/gateway.ts
-   - 支持重启策略: never/on-failure/always
-
-## 常见错误诊断与修复策略
-
-| 错误类型 | 诊断方法 | 修复动作 |
-|---------|---------|---------|
-| 模块缺失 (Cannot find module) | 查看错误日志中的模块名 | 调用 execute_command 执行 \`npm install <模块名>\` 或 \`yarn add <模块名>\` |
-| 端口占用 (EADDRINUSE) | 提取端口号，检查占用进程 | 执行 \`lsof -i :PORT -t \| xargs kill -9\` (Linux/Mac) 或 \`netstat -ano \| findstr :PORT\` (Windows) |
-| TypeScript 编译错误 | 读取相关 .ts 文件查看类型错误 | 执行 \`tsc --noEmit\` 定位错误，修改代码后重试 |
-| 内存溢出 (JavaScript heap out of memory) | 日志中出现 FATAL ERROR | 启动时添加 \`--max-old-space-size=4096\` 参数 |
-| 配置文件错误 | 读取配置文件检查语法 | 修复 JSON/JS 配置语法错误 |
-
-## 工作流程
-1. 接收错误日志和退出代码
-2. 分析日志识别错误类型
-3. 如需查看文件，调用 read_file
-4. 确定修复方案，调用 execute_command 执行修复命令
-5. 验证修复是否成功（通过命令返回值判断）
-6. 如果修复成功，系统会自动重启网关；如果失败，报告失败原因
-
-## 重要原则
-- 优先尝试自动修复，不要过早放弃
-- 修复命令必须是原子操作（单条命令完成一个修复动作）
-- 如果连续 3 次修复失败，停止尝试并报告严重问题
-- 不要修改系统级配置或访问工作目录外的文件`;
-
-const SELF_HEALING_SYSTEM_PROMPT = `你是 Node.js 运行时自愈 Agent (Self-Healing Agent)，负责捕获并修复应用程序运行时的未捕获异常和 Promise 拒绝。
-
-## 当前环境
-- 操作系统: ${os.platform()}
-- 工作目录: ${SECURITY.ALLOWED_ROOT}
-- Shell: ${CONFIG.SHELL}
-- 允许的基础命令: ${SECURITY.ALLOWED_COMMANDS.join(', ')}
-
-## 你的职责
-当应用抛出未捕获异常 (uncaughtException) 或未处理的 Promise 拒绝 (unhandledRejection) 时，你将被激活。你必须：
-1. 分析错误类型和堆栈信息
-2. 判断错误是否可自动修复
-3. 调用工具执行修复操作
-4. 评估修复结果
-
-## 可用工具
-
-1. **execute_command** - 执行修复命令
-   - 安装缺失依赖: npm install / yarn add / pnpm add
-   - 清理缓存重建: rm -rf node_modules && npm install
-   - 类型检查: tsc --noEmit
-   - 权限修复: chmod/chown (仅限项目目录)
-   - 清理临时文件
-
-2. **read_file** - 读取关键文件诊断问题
-   - package.json: 检查依赖、脚本配置
-   - package-lock.json/yarn.lock: 检查锁定文件一致性
-   - 源代码文件: 定位运行时错误位置
-   - .env 文件: 检查环境变量配置
-
-3. **start_gateway_guardian** (特殊情况使用)
-   - 当检测到网关进程异常且需要完整重启守护时使用
-   - 仅在当前进程是网关主进程时调用
-
-## 自动修复策略优先级（按此顺序尝试）
-
-**P0 - 依赖问题（最常见）**
-- 错误特征: Cannot find module 'xxx', Module not found
-- 修复动作: npm install xxx / yarn add xxx
-
-**P1 - 缓存/构建问题**
-- 错误特征: 奇怪的语法错误、找不到已安装模块、构建产物损坏
-- 修复动作: 删除 node_modules 和 lock 文件，重新 install
-
-**P2 - 权限问题**
-- 错误特征: EACCES, Permission denied, EPERM
-- 修复动作: 检查目录权限，修复为当前用户可写
-
-**P3 - 类型/语法错误**
-- 错误特征: TypeScript 编译错误、SyntaxError
-- 修复动作: 读取源文件，如有明显语法问题则修复（需要手动修改代码时报告给开发者）
-
-**P4 - 资源问题**
-- 错误特征: ENOSPC (磁盘满), EMFILE (文件描述符过多)
-- 修复动作: 清理日志文件、临时文件
-
-## 不可修复的情况（直接报告失败）
-- 业务逻辑错误（如 TypeError: Cannot read property 'x' of undefined 源于代码 bug）
-- 数据库连接失败（配置错误）
-- 外部 API 服务不可用
-- 内存泄漏导致的崩溃（需要代码层面的修复）
-
-## 工作流程
-1. 接收错误对象和上下文信息
-2. 根据错误 message 和 stack 判断错误类型
-3. 如需更多信息，调用 read_file 查看相关文件
-4. 根据优先级选择合适的修复策略
-5. 调用 execute_command 执行修复
-6. 根据命令返回结果判断修复是否成功
-7. 成功则返回 true，失败则返回 false 并记录错误
-
-## 重要限制
-- 只能操作当前工作目录内的文件
-- 禁止执行系统级危险命令（rm -rf /, mkfs, dd 等会被安全层拦截）
-- 不要尝试修复代码逻辑错误（需要人类开发者介入）
-- 相同错误连续出现 3 次时停止自动修复，避免无限循环`;
-
-// #region 启动主程序
-main();
-// #endregion 启动主程序
+// 导出配置是为了可以让外部程序容易读取，读取到之后可以直接使用源码替换方案, 
+// 直接把新的默认配置覆盖过来, 然后重启当前程序, 即可实现默认配置替换
+export default config;
+// #endregion 启动
 
 // ==================== 主程序 ====================
 // #region 主程序
@@ -296,7 +97,7 @@ interface cmdData {
  * // 完整参数
  * runCmd('node --env-file=.env src/gateway.ts', (d) => console.log('--->', '' + d), (d) => console.log('===>', '' + d)).catch(err => console.log('err=>', err))
  */
-function gatewayRunCmd(cmd: string | Array<any> = 'node --env-file=.env src/gateway.ts', stdout: (stream: Stream.Readable, data: cmdData) => void = () => { }, stderr: (stream: Stream.Readable, data: cmdData) => void = () => { }): Promise<cmdData> {
+function gatewayRunCmd(cmd: string | Array<any> = CONFIG.GATEWAY_CMD, stdout: (stream: Stream.Readable, data: cmdData) => void = () => { }, stderr: (stream: Stream.Readable, data: cmdData) => void = () => { }): Promise<cmdData> {
     return new Promise((resolve, reject) => {
         let child: ChildProcess | null = null;
         let data: cmdData = {
@@ -356,7 +157,7 @@ function gatewayRunCmd(cmd: string | Array<any> = 'node --env-file=.env src/gate
 
 /** 网关启动配置选项 */
 interface GatewayOptions {
-    /** 启动命令，默认 'node --env-file=.env src/gateway.ts' */
+    /** 启动命令，默认 CONFIG.GATEWAY_CMD */
     command?: string | string[];
     /** 重启策略: 'never' | 'on-failure' | 'always' | number(次数) */
     restartPolicy?: 'never' | 'on-failure' | 'always' | number;
@@ -393,8 +194,8 @@ function createGatewayStarterTool() {
                     properties: {
                         command: {
                             type: 'string',
-                            description: '启动命令，如 "node --env-file=.env src/gateway.ts"',
-                            default: 'node --env-file=.env src/gateway.ts'
+                            description: `启动命令，如 "${CONFIG.GATEWAY_CMD}"`,
+                            default: CONFIG.GATEWAY_CMD
                         },
                         restart_policy: {
                             type: 'string',
@@ -419,7 +220,7 @@ function createGatewayStarterTool() {
 async function gatewayStarter(
     agent?: AutoHealingAgent, options: GatewayOptions = {}): Promise<cmdData> {
     const {
-        command = 'node --env-file=.env src/gateway.ts',
+        command = CONFIG.GATEWAY_CMD,
         restartPolicy = 'on-failure',
         minRestartInterval = 5000
     } = options;
@@ -428,7 +229,7 @@ async function gatewayStarter(
     if (!agent) {
         agent = new AutoHealingAgent([{
             role: 'system',
-            content: GATEWAY_SYSTEM_PROMPT
+            content: CONFIG.GATEWAY_SYSTEM_PROMPT
         }], [createGatewayStarterTool(), readFileTool(), executeCommandTool()]);
     }
 
@@ -510,9 +311,10 @@ function delay(ms: number) {
 
 // ==================== 跨平台执行器 ====================
 // #region 跨平台执行器
-async function executeCommand(rawCommand: string): Promise<{ success: boolean, output: string }> {
+async function executeCommand(rawCommand: string | { command: string }): Promise<{ success: boolean, output: string }> {
     // 1. 安全校验
-    const validation = validateCommand(rawCommand);
+    const rawcmd = typeof rawCommand == 'object' ? rawCommand.command : rawCommand;
+    const validation = validateCommand(rawcmd);
     if (!validation.safe) {
         return { success: false, output: `🚫 安全拦截: ${validation.reason}` };
     }
@@ -525,7 +327,7 @@ async function executeCommand(rawCommand: string): Promise<{ success: boolean, o
             return resolve({ success: false, output: '🚫 命令处理后为空' });
         }
         const child = spawn(CONFIG.SHELL, [CONFIG.SHELL_FLAG, command], {
-            cwd: SECURITY.ALLOWED_ROOT,
+            cwd: CONFIG.SECURITY.ALLOWED_ROOT,
             env: process.env,
             timeout: CONFIG.TIMEOUT,
             stdio: ['pipe', 'pipe', 'pipe']
@@ -568,7 +370,7 @@ function executeCommandTool() {
             type: 'function',
             function: {
                 name: 'execute_command',
-                description: `执行系统命令，用于修复代码、安装依赖或运行测试。命令会在安全目录下执行，有超时限制。指令受白名单限制：${SECURITY.ALLOWED_COMMANDS.join(', ')}`,
+                description: `执行系统命令，用于修复代码、安装依赖或运行测试。命令会在安全目录下执行，有超时限制。`,
                 parameters: {
                     type: 'object',
                     properties: {
@@ -588,24 +390,23 @@ function executeCommandTool() {
 // ==================== 安全校验逻辑 ====================
 // #region 安全校验逻辑
 function validateCommand(cmd: string): { safe: boolean, reason?: string, sanitized?: string } {
-    // 检查危险模式
-    for (const pattern of SECURITY.DANGEROUS_PATTERNS) {
+    // 黑名单模式, 检查危险模式
+    for (const pattern of CONFIG.SECURITY.DANGEROUS_PATTERNS) {
         if (pattern.test(cmd)) {
-            return { safe: false, reason: `匹配危险模式: ${pattern.source}` };
+            return { safe: false, reason: `匹配到危险模式: ${pattern.source}` };
         }
     }
 
-    // 解析命令主体（简单分词）
-    const parts = cmd.split(/[|&;]+/).map(p => p.trim()).filter(Boolean);
-
-    for (const part of parts) {
-        const firstWord = part.trim().split(/\s+/)[0].toLowerCase();
-
-        // 检查是否在白名单
-        if (!SECURITY.ALLOWED_COMMANDS.some(c => firstWord === c || firstWord.endsWith('/' + c))) {
-            return { safe: false, reason: `命令"${firstWord}"不在白名单` };
-        }
-    }
+    // NOTE 这里的 agent 只做守护职责，只使用黑名单来做限制，白名单会限制 agent 发挥
+    // // 白名单模式, 解析命令主体（简单分词）
+    // const parts = cmd.split(/[|&;]+/).map(p => p.trim()).filter(Boolean);
+    // for (const part of parts) {
+    //     const firstWord = part.trim().split(/\s+/)[0].toLowerCase();
+    //     // 检查是否在白名单
+    //     if (!CONFIG.SECURITY.ALLOWED_COMMANDS.some(c => firstWord === c || firstWord.endsWith('/' + c))) {
+    //         return { safe: false, reason: `命令"${firstWord}"不在白名单` };
+    //     }
+    // }
 
     // 路径规范化检查（防止 ../../）
     if (cmd.includes('..')) {
@@ -635,6 +436,7 @@ interface Message {
     tool_call_id?: string,
     /** tool 使用 */
     name?: string,
+    tool_calls?: ToolCall[];
 }
 type ToolCall = {
     id: string;
@@ -671,7 +473,7 @@ function chatCompletion(messages: Message[], tools?: any[]): ChatTask {
         max_tokens: 2000
     };
 
-    if (tools && CONFIG.MODEL.includes('gpt')) {
+    if (tools && tools.length > 0) {
         body.tools = tools;
         body.tool_choice = 'auto';
     }
@@ -739,10 +541,10 @@ class AutoHealingAgent {
 
     /** 打印日志 */
     log(...args: any[]) {
-        console.log(`${getColor(this.id)}[${this.id}]`, ...args, COLORS_RESET);
+        console.log(`${getColor(this.id)}[${this.id}]`, ...args, CONFIG.COLORS_RESET);
     }
     error(...args: any[]) {
-        console.log(`${getColor(this.id)}[${this.id}]`, ...args, COLORS_RESET);
+        console.log(`${getColor(this.id)}[${this.id}]`, ...args, CONFIG.COLORS_RESET);
     }
 
     constructor(messages: Message[] = [], tools?: any[]) {
@@ -809,11 +611,11 @@ class AutoHealingAgent {
                 const fun = this.toolMaps[call.function.name];
                 if (typeof fun == 'function') {
                     try {
-                        this.log('☎️ 调用函数', call.function.name, args);
+                        this.log(`☎️ 调用函数: ${call.function.name} 参数:`, args);
                         re[call.function.name] = {
                             role: "tool",
                             tool_call_id: call.id,
-                            name: call.function.name,
+                            // name: call.function.name,
                             content: ''
                         };
                         if (call.function.name === 'start_gateway_guardian') {
@@ -835,6 +637,9 @@ class AutoHealingAgent {
                         const message = err instanceof Error ? err.message : String(err);
                         re[call.function.name].content = '代码执行出现异常,异常信息: ' + message;
                     }
+                    // 强制把 content 转成字符串
+                    if (typeof re[call.function.name].content != 'string') re[call.function.name].content = JSON.stringify(re[call.function.name].content);
+                    this.log('☎️ 函数调用的结果:', re[call.function.name].content);
                 }
             }
         }
@@ -857,10 +662,14 @@ class AutoHealingAgent {
         return chatTask.data.then(async json => {
             const re = json.content ?? '';
             this.log('🤖:', re);
-            this.messages.push({
+            const assistantMsg: Message = {
                 role: 'assistant',
                 content: re
-            });
+            };
+            if (json.tool_calls && json.tool_calls.length > 0) {
+                assistantMsg.tool_calls = json.tool_calls;
+            }
+            this.messages.push(assistantMsg);
             // 处理 AI 请求调用工具
             let callResults = await this.calls(json.tool_calls);
             return {
@@ -882,7 +691,7 @@ class AutoHealingAgent {
 // #region 全局异常拦截器
 function selfHealing() {
     const agent = new AutoHealingAgent([{
-        role: 'system', content: SELF_HEALING_SYSTEM_PROMPT
+        role: 'system', content: CONFIG.SELF_HEALING_SYSTEM_PROMPT
     }], [readFileTool(), executeCommandTool()]);
     const errorCache: Error[] = [];
     const MAX_CACHE_SIZE = 10;
@@ -999,6 +808,8 @@ class FilePoller {
 // #endregion 文件轮询输入
 
 // ==================== 辅助函数 ====================
+// #region 辅助函数
+
 /**
  * ai 的tool工具
  */
@@ -1025,12 +836,13 @@ interface ToolWarp {
     /** 函数的 Schema */
     tool: Tool
 }
-// #region 辅助函数
+
+/** 读取文件 */
 async function readFile(filePath: string): Promise<string> {
     try {
         // 安全检查：只允许读取当前目录下文件
         const resolved = path.resolve(filePath);
-        if (!resolved.startsWith(SECURITY.ALLOWED_ROOT)) {
+        if (!resolved.startsWith(CONFIG.SECURITY.ALLOWED_ROOT)) {
             return '错误: 路径超出项目范围';
         }
         return fs.readFileSync(resolved, 'utf-8');
@@ -1065,4 +877,330 @@ function readFileTool() {
         }
     }
 }
+/** 
+ * 获取颜色  
+ * 用于给agent通过自己的id拿到对应颜色，方便区分日志种类
+ */
+function getColor(id: number): string {
+    return CONFIG.COLORS[id % CONFIG.COLORS.length] || CONFIG.COLORS[CONFIG.COLORS.length - 1];
+}
 // #endregion 辅助函数
+
+// ==================== 配置 ====================
+// #region 配置
+type BaseConfig = ReturnType<typeof config>;
+interface AppConfig extends BaseConfig {
+    API_KEY: string;
+    FILE_POLLER: boolean;
+    INPUT_FILE: string;
+    agentId: number;
+    GATEWAY_CMD: string;
+}
+
+/** 基础配置, 想要重写默认配置就直接使用toString拿到源码特征, 然后直接替换覆盖即可 */
+export function config() {
+    const CONFIG = {
+        /** ai的key */
+        API_KEY: '',
+        /** ai的基础url */
+        BASE_URL: 'https://api.deepseek.com/v1',
+        /** ai的模型名称 */
+        MODEL: 'deepseek-chat',
+        /** ai最大思考次数 */
+        MAX_TURNS: 10,
+        /** 命令执行超时60秒 */
+        TIMEOUT: 60000,
+        /** 是否启用文件轮询模式 */
+        FILE_POLLER: false,
+        /** 输入文件路径 */
+        INPUT_FILE: './agent-input.txt',
+        /** 轮询间隔(ms) */
+        POLL_INTERVAL: 2000,
+        /** 网关启动命令 */
+        GATEWAY_CMD: 'node --env-file=.env src/gateway.ts',
+        /** 网关重启策略: never/on-failure/always */
+        GATEWAY_RESTART_POLICY: 'on-failure' as string,
+        /** 网关日志路径（与系统错误日志分开） */
+        GATEWAY_LOGS_PATH: './logs/gateway-crash.log',
+
+        // 以下配置无需配置
+        /** shell执行器 */
+        SHELL: os.platform() === 'win32' ? 'cmd.exe' : '/bin/bash',
+        /** shell执行器的标识 */
+        SHELL_FLAG: os.platform() === 'win32' ? '/c' : '-c',
+        /** agent的id, 用于打印日志 */
+        agentId: 0,
+        /** 颜色列表 */
+        COLORS: [
+            '\x1b[32m', // 1: 绿色 (Green)
+            '\x1b[35m', // 2: 洋红 (Magenta)
+            '\x1b[34m', // 3: 蓝色 (Blue)
+            '\x1b[33m', // 4: 黄色 (Yellow)  
+            '\x1b[31m', // 5: 红色 (Red)
+            '\x1b[36m', // 6: 青色 (Cyan)
+            '\x1b[90m', // 7: 亮黑 (Gray)
+        ],
+        /** 重置颜色 */
+        COLORS_RESET: '\x1b[0m',
+        /** 安全策略 */
+        SECURITY: {
+            // 允许的基础命令（完全自动模式下必须严格）
+            ALLOWED_COMMANDS: [
+                'npm', 'yarn', 'pnpm', 'npx', 'node', 'tsc',
+                'rm', 'del', 'rmdir', 'mkdir', 'touch', 'cp', 'mv', 'xcopy', 'copy',
+                'git', 'cat', 'ls', 'dir', 'echo', 'cd', 'pwd', 'clear', 'cls',
+                'lsof', 'xargs', 'netstat', 'grep', 'kill'
+            ],
+
+            /** 危险模式黑名单（正则） */
+            DANGEROUS_PATTERNS: [
+                /rm\s+-rf\s*\/[ ]*$/,           // rm -rf / 或 rm -rf /*
+                /mkfs\.?/,                      // 格式化
+                /dd\s+if=/,                     // 磁盘操作
+                />[ ]*\/etc\//,                 // 覆盖系统文件
+                /curl.+pipe.+sh/,               // curl | sh 管道执行
+                /wget.+http.*\.(sh|bat|exe)/,   // 下载可执行文件
+                /\.\.[\/\\]/,                   // 上级目录遍历
+                /%SYSTEMROOT%|C:\\Windows/i,    // Windows系统目录
+                /sudo\s+rm/,                    // 特权删除
+                /:(){ :|:& };:/                 // Fork炸弹
+            ],
+
+            /** 允许的操作目录（必须在此范围内） */
+            ALLOWED_ROOT: process.cwd()
+        },
+        /** 网关 agent 提示词 */
+        GATEWAY_SYSTEM_PROMPT: '',
+        /** 系统 agent 提示词 */
+        SELF_HEALING_SYSTEM_PROMPT: '',
+    }
+    // ==================== 定义提示词 ====================
+    // 网关 agent 提示词
+    CONFIG.GATEWAY_SYSTEM_PROMPT = `你是网关守护 Agent (Gateway Guardian)，专门负责 Node.js 网关进程的启动、监控和自动修复。
+
+## 当前环境
+- 操作系统: ${os.platform()}
+- 工作目录: ${CONFIG.SECURITY.ALLOWED_ROOT}
+- Shell: ${CONFIG.SHELL}
+
+## 你的职责
+当网关进程崩溃或异常退出时，你必须分析错误日志，诊断根本原因，并调用合适的工具进行修复。
+
+## 可用工具
+
+1. **execute_command** - 执行系统命令修复问题
+   - 用于安装依赖、编译代码、清理缓存、终止占用端口的进程等
+   - 命令受白名单限制，危险操作会被拦截
+
+2. **read_file** - 读取配置文件或源代码
+   - 用于查看 package.json、tsconfig.json、日志文件或源码分析错误
+
+3. **start_gateway_guardian** - 启动/重启网关进程（仅在需要启动新实例时使用）
+   - 启动命令: ${CONFIG.GATEWAY_CMD}
+   - 支持重启策略: never/on-failure/always
+
+## 常见错误诊断与修复策略
+
+| 错误类型 | 诊断方法 | 修复动作 |
+|---------|---------|---------|
+| 模块缺失 (Cannot find module) | 查看错误日志中的模块名 | 调用 execute_command 执行 \`npm install <模块名>\` 或 \`yarn add <模块名>\` |
+| 端口占用 (EADDRINUSE) | 提取端口号，检查占用进程 | 执行 \`lsof -i :PORT -t \| xargs kill -9\` (Linux/Mac) 或 \`netstat -ano \| findstr :PORT\` (Windows) |
+| TypeScript 编译错误 | 读取相关 .ts 文件查看类型错误 | 执行 \`tsc --noEmit\` 定位错误，修改代码后重试 |
+| 内存溢出 (JavaScript heap out of memory) | 日志中出现 FATAL ERROR | 启动时添加 \`--max-old-space-size=4096\` 参数 |
+| 配置文件错误 | 读取配置文件检查语法 | 修复 JSON/JS 配置语法错误 |
+
+## 工作流程
+1. 接收错误日志和退出代码
+2. 分析日志识别错误类型
+3. 如需查看文件，调用 read_file
+4. 确定修复方案，调用 execute_command 执行修复命令
+5. 验证修复是否成功（通过命令返回值判断）
+6. 如果修复成功，系统会自动重启网关；如果失败，报告失败原因
+
+## 重要原则
+- 优先尝试自动修复，不要过早放弃
+- 修复命令必须是原子操作（单条命令完成一个修复动作）
+- 如果连续 3 次修复失败，停止尝试并报告严重问题
+- 不要修改系统级配置或访问工作目录外的文件`;
+    // 系统 agent 提示词
+    CONFIG.SELF_HEALING_SYSTEM_PROMPT = `你是 Node.js 运行时自愈 Agent (Self-Healing Agent)，负责捕获并修复应用程序运行时的未捕获异常和 Promise 拒绝。
+
+## 当前环境
+- 操作系统: ${os.platform()}
+- 工作目录: ${CONFIG.SECURITY.ALLOWED_ROOT}
+- Shell: ${CONFIG.SHELL}
+
+## 你的职责
+当应用抛出未捕获异常 (uncaughtException) 或未处理的 Promise 拒绝 (unhandledRejection) 时，你将被激活。你必须：
+1. 分析错误类型和堆栈信息
+2. 判断错误是否可自动修复
+3. 调用工具执行修复操作
+4. 评估修复结果
+
+## 可用工具
+
+1. **execute_command** - 执行修复命令
+   - 安装缺失依赖: npm install / yarn add / pnpm add
+   - 清理缓存重建: rm -rf node_modules && npm install
+   - 类型检查: tsc --noEmit
+   - 权限修复: chmod/chown (仅限项目目录)
+   - 清理临时文件
+
+2. **read_file** - 读取关键文件诊断问题
+   - package.json: 检查依赖、脚本配置
+   - package-lock.json/yarn.lock: 检查锁定文件一致性
+   - 源代码文件: 定位运行时错误位置
+   - .env 文件: 检查环境变量配置
+
+3. **start_gateway_guardian** (特殊情况使用)
+   - 当检测到网关进程异常且需要完整重启守护时使用
+   - 仅在当前进程是网关主进程时调用
+
+## 自动修复策略优先级（按此顺序尝试）
+
+**P0 - 依赖问题（最常见）**
+- 错误特征: Cannot find module 'xxx', Module not found
+- 修复动作: npm install xxx / yarn add xxx
+
+**P1 - 缓存/构建问题**
+- 错误特征: 奇怪的语法错误、找不到已安装模块、构建产物损坏
+- 修复动作: 删除 node_modules 和 lock 文件，重新 install
+
+**P2 - 权限问题**
+- 错误特征: EACCES, Permission denied, EPERM
+- 修复动作: 检查目录权限，修复为当前用户可写
+
+**P3 - 类型/语法错误**
+- 错误特征: TypeScript 编译错误、SyntaxError
+- 修复动作: 读取源文件，如有明显语法问题则修复（需要手动修改代码时报告给开发者）
+
+**P4 - 资源问题**
+- 错误特征: ENOSPC (磁盘满), EMFILE (文件描述符过多)
+- 修复动作: 清理日志文件、临时文件
+
+## 不可修复的情况（直接报告失败）
+- 业务逻辑错误（如 TypeError: Cannot read property 'x' of undefined 源于代码 bug）
+- 数据库连接失败（配置错误）
+- 外部 API 服务不可用
+- 内存泄漏导致的崩溃（需要代码层面的修复）
+
+## 工作流程
+1. 接收错误对象和上下文信息
+2. 根据错误 message 和 stack 判断错误类型
+3. 如需更多信息，调用 read_file 查看相关文件
+4. 根据优先级选择合适的修复策略
+5. 调用 execute_command 执行修复
+6. 根据命令返回结果判断修复是否成功
+7. 成功则返回 true，失败则返回 false 并记录错误
+
+## 重要限制
+- 只能操作当前工作目录内的文件
+- 禁止执行系统级危险命令（rm -rf /, mkfs, dd 等会被安全层拦截）
+- 不要尝试修复代码逻辑错误（需要人类开发者介入）
+- 相同错误连续出现 3 次时停止自动修复，避免无限循环`;
+
+    return CONFIG
+}
+
+/**
+ * 读取环境变量配置  
+ * 可以写在 .env 文件中，运行时使用 `--env-file=.env` 参数来启用环境文件
+ * @returns 
+ */
+function readEnvConf() {
+    return { ...process.env }
+}
+/**
+ * 读取命令行配置  
+ * 如果是使用npm启动, 可以这样携带 `npm run start -- AA=123 BB=参数BB`  
+ * 如果是使用node启动, 可以这样携带 `node src/agent.ts AA=123 BB=参数BB`  
+ * @returns 
+ */
+function readCmdConf() {
+    const args = process.argv.slice(2);
+    const config: { [key: string]: any } = {};
+    args.forEach(arg => {
+        const [k, v] = arg.split('=');
+        config[k] = v;
+    });
+    return config;
+}
+
+/**
+ * 校验并规范化配置
+ * 
+ * 基于 baseConfig 自动推断类型并转换，只保留 baseConfig 中定义的字段。只保留基础类型 number/boolean/string 
+ * 处理流程：
+ * 1. 过滤 input 中不在 baseConfig 的字段
+ * 2. 特殊字段规则处理（枚举、路径、URL）
+ * 3. 基础类型自动转换（number/boolean/string）
+ * 
+ * @param input - 原始配置对象，可能包含非法字段或错误类型
+ * @param baseConfig - 基础配置模板，用于确定有效字段及目标类型
+ * @returns 规范化后的配置对象，只包含有效字段且类型正确
+ * @throws 当数值转换失败或枚举值非法时抛出错误
+ * 
+ * @example
+ * validateAndNormalizeConfig({ MAX_TURNS: "20", FOO: "bar" }, config())
+ * // 返回: { MAX_TURNS: 20 } （FOO被过滤，字符串"20"转为数字）
+ */
+function validateAndNormalizeConfig(
+    input: Record<string, any>,
+    baseConfig: Partial<AppConfig>
+): Partial<AppConfig> {
+    const result: Partial<AppConfig> = {};
+    const validKeys = Object.keys(baseConfig) as (keyof AppConfig)[];
+
+    for (const key of validKeys) {
+        let value = input[key];
+        // 当前配置的该字段为空 或者 基础配置中为 object类型都会直接跳过，并且只会处理基础类型的转换 number/boolean/string
+        if (value === undefined || typeof baseConfig[key] == 'object') continue;
+        switch (key) {
+            // 特殊规则：枚举校验
+            case 'GATEWAY_RESTART_POLICY':
+                const valid = ['never', 'on-failure', 'always'];
+                if (!valid.includes(value)) {
+                    throw new Error(`${key} must be one of: ${valid.join(', ')}`);
+                }
+                break;
+            // 特殊规则：路径规范化
+            case 'INPUT_FILE':
+            case 'GATEWAY_LOGS_PATH':
+                value = path.resolve(value);
+                break;
+            // 特殊规则：URL去尾斜杠
+            case 'BASE_URL':
+                value = value.replace(/\/+$/, '');
+                break;
+            // 类型转换
+            default:
+                const baseValue = baseConfig[key];
+                const baseType = typeof baseValue;
+                if (baseType === 'number') {
+                    value = Number(value);
+                    if (isNaN(value)) throw new Error(`${key} 必须是一个有效的数字`);
+                } else if (baseType === 'boolean') {
+                    value = value === true || value === 'true' || value === '1';
+                } else if (baseType === 'string') {
+                    value = String(value);
+                }
+                break;
+        }
+        result[key] = value;
+    }
+
+    return result;
+}
+
+/**
+ * 读取全部配置
+ * @returns 
+ */
+function readAllConfig() {
+    const base = config();
+    const env = validateAndNormalizeConfig(readEnvConf(), base);
+    const cmd = validateAndNormalizeConfig(readCmdConf(), base);
+    const finalConfig = { ...base, ...env, ...cmd };
+    return finalConfig
+}
+// #endregion 配置
