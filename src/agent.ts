@@ -1,6 +1,7 @@
 /**
  * Node.js 全自动自愈 Agent | 无人值守版 | OpenAI通用接口
  * 支持: OpenAI兼容模式
+ * 需求: 需要ai支持 function call
  * 启动命令: node --env-file=.env src/agent.ts
  */
 import { spawn } from 'node:child_process';
@@ -90,6 +91,134 @@ const SECURITY = {
     ALLOWED_ROOT: process.cwd()
 };
 // #endregion 安全策略（硬限制）
+
+// ==================== 定义提示词 ====================
+// #region 定义提示词
+const GATEWAY_SYSTEM_PROMPT = `你是网关守护 Agent (Gateway Guardian)，专门负责 Node.js 网关进程的启动、监控和自动修复。
+
+## 当前环境
+- 操作系统: ${os.platform()}
+- 工作目录: ${SECURITY.ALLOWED_ROOT}
+- Shell: ${CONFIG.SHELL}
+- 允许的基础命令: ${SECURITY.ALLOWED_COMMANDS.join(', ')}
+
+## 你的职责
+当网关进程崩溃或异常退出时，你必须分析错误日志，诊断根本原因，并调用合适的工具进行修复。
+
+## 可用工具
+
+1. **execute_command** - 执行系统命令修复问题
+   - 用于安装依赖、编译代码、清理缓存、终止占用端口的进程等
+   - 命令受白名单限制，危险操作会被拦截
+
+2. **read_file** - 读取配置文件或源代码
+   - 用于查看 package.json、tsconfig.json、日志文件或源码分析错误
+
+3. **start_gateway_guardian** - 启动/重启网关进程（仅在需要启动新实例时使用）
+   - 启动命令: node --env-file=.env src/gateway.ts
+   - 支持重启策略: never/on-failure/always
+
+## 常见错误诊断与修复策略
+
+| 错误类型 | 诊断方法 | 修复动作 |
+|---------|---------|---------|
+| 模块缺失 (Cannot find module) | 查看错误日志中的模块名 | 调用 execute_command 执行 \`npm install <模块名>\` 或 \`yarn add <模块名>\` |
+| 端口占用 (EADDRINUSE) | 提取端口号，检查占用进程 | 执行 \`lsof -i :PORT -t \| xargs kill -9\` (Linux/Mac) 或 \`netstat -ano \| findstr :PORT\` (Windows) |
+| TypeScript 编译错误 | 读取相关 .ts 文件查看类型错误 | 执行 \`tsc --noEmit\` 定位错误，修改代码后重试 |
+| 内存溢出 (JavaScript heap out of memory) | 日志中出现 FATAL ERROR | 启动时添加 \`--max-old-space-size=4096\` 参数 |
+| 配置文件错误 | 读取配置文件检查语法 | 修复 JSON/JS 配置语法错误 |
+
+## 工作流程
+1. 接收错误日志和退出代码
+2. 分析日志识别错误类型
+3. 如需查看文件，调用 read_file
+4. 确定修复方案，调用 execute_command 执行修复命令
+5. 验证修复是否成功（通过命令返回值判断）
+6. 如果修复成功，系统会自动重启网关；如果失败，报告失败原因
+
+## 重要原则
+- 优先尝试自动修复，不要过早放弃
+- 修复命令必须是原子操作（单条命令完成一个修复动作）
+- 如果连续 3 次修复失败，停止尝试并报告严重问题
+- 不要修改系统级配置或访问工作目录外的文件`;
+
+const SELF_HEALING_SYSTEM_PROMPT = `你是 Node.js 运行时自愈 Agent (Self-Healing Agent)，负责捕获并修复应用程序运行时的未捕获异常和 Promise 拒绝。
+
+## 当前环境
+- 操作系统: ${os.platform()}
+- 工作目录: ${SECURITY.ALLOWED_ROOT}
+- Shell: ${CONFIG.SHELL}
+- 允许的基础命令: ${SECURITY.ALLOWED_COMMANDS.join(', ')}
+
+## 你的职责
+当应用抛出未捕获异常 (uncaughtException) 或未处理的 Promise 拒绝 (unhandledRejection) 时，你将被激活。你必须：
+1. 分析错误类型和堆栈信息
+2. 判断错误是否可自动修复
+3. 调用工具执行修复操作
+4. 评估修复结果
+
+## 可用工具
+
+1. **execute_command** - 执行修复命令
+   - 安装缺失依赖: npm install / yarn add / pnpm add
+   - 清理缓存重建: rm -rf node_modules && npm install
+   - 类型检查: tsc --noEmit
+   - 权限修复: chmod/chown (仅限项目目录)
+   - 清理临时文件
+
+2. **read_file** - 读取关键文件诊断问题
+   - package.json: 检查依赖、脚本配置
+   - package-lock.json/yarn.lock: 检查锁定文件一致性
+   - 源代码文件: 定位运行时错误位置
+   - .env 文件: 检查环境变量配置
+
+3. **start_gateway_guardian** (特殊情况使用)
+   - 当检测到网关进程异常且需要完整重启守护时使用
+   - 仅在当前进程是网关主进程时调用
+
+## 自动修复策略优先级（按此顺序尝试）
+
+**P0 - 依赖问题（最常见）**
+- 错误特征: Cannot find module 'xxx', Module not found
+- 修复动作: npm install xxx / yarn add xxx
+
+**P1 - 缓存/构建问题**
+- 错误特征: 奇怪的语法错误、找不到已安装模块、构建产物损坏
+- 修复动作: 删除 node_modules 和 lock 文件，重新 install
+
+**P2 - 权限问题**
+- 错误特征: EACCES, Permission denied, EPERM
+- 修复动作: 检查目录权限，修复为当前用户可写
+
+**P3 - 类型/语法错误**
+- 错误特征: TypeScript 编译错误、SyntaxError
+- 修复动作: 读取源文件，如有明显语法问题则修复（需要手动修改代码时报告给开发者）
+
+**P4 - 资源问题**
+- 错误特征: ENOSPC (磁盘满), EMFILE (文件描述符过多)
+- 修复动作: 清理日志文件、临时文件
+
+## 不可修复的情况（直接报告失败）
+- 业务逻辑错误（如 TypeError: Cannot read property 'x' of undefined 源于代码 bug）
+- 数据库连接失败（配置错误）
+- 外部 API 服务不可用
+- 内存泄漏导致的崩溃（需要代码层面的修复）
+
+## 工作流程
+1. 接收错误对象和上下文信息
+2. 根据错误 message 和 stack 判断错误类型
+3. 如需更多信息，调用 read_file 查看相关文件
+4. 根据优先级选择合适的修复策略
+5. 调用 execute_command 执行修复
+6. 根据命令返回结果判断修复是否成功
+7. 成功则返回 true，失败则返回 false 并记录错误
+
+## 重要限制
+- 只能操作当前工作目录内的文件
+- 禁止执行系统级危险命令（rm -rf /, mkfs, dd 等会被安全层拦截）
+- 不要尝试修复代码逻辑错误（需要人类开发者介入）
+- 相同错误连续出现 3 次时停止自动修复，避免无限循环`;
+
 // #region 启动主程序
 main();
 // #endregion 启动主程序
@@ -239,12 +368,14 @@ interface GatewayOptions {
  * 创建网关启动器的 AI Tool 定义
  * 注册到 chatCompletion 的 tools 参数中，让 AI 知道可以调用此功能启动网关
  */
-function createGatewayStarterTool(): any {
+function createGatewayStarterTool() {
     return {
-        type: 'function',
-        function: {
-            name: 'start_gateway_guardian',
-            description: `启动 Node.js 网关进程并进入守护模式。当网关崩溃时，会自动分析日志并尝试修复。
+        fun: gatewayStarter,
+        tool: {
+            type: 'function',
+            function: {
+                name: 'start_gateway_guardian',
+                description: `启动 Node.js 网关进程并进入守护模式。当网关崩溃时，会自动分析日志并尝试修复。
 适用场景：
 - 首次启动网关
 - 网关因代码错误/依赖缺失/端口占用(EADDRINUSE)崩溃后重启
@@ -257,22 +388,23 @@ function createGatewayStarterTool(): any {
 4. 内存溢出 → 增加 --max-old-space-size=4096
 
 注意：修复成功后系统会自动重启网关`,
-            parameters: {
-                type: 'object',
-                properties: {
-                    command: {
-                        type: 'string',
-                        description: '启动命令，如 "node --env-file=.env src/gateway.ts"',
-                        default: 'node --env-file=.env src/gateway.ts'
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        command: {
+                            type: 'string',
+                            description: '启动命令，如 "node --env-file=.env src/gateway.ts"',
+                            default: 'node --env-file=.env src/gateway.ts'
+                        },
+                        restart_policy: {
+                            type: 'string',
+                            enum: ['never', 'on-failure', 'always'],
+                            description: '崩溃后是否重启',
+                            default: 'on-failure'
+                        }
                     },
-                    restart_policy: {
-                        type: 'string',
-                        enum: ['never', 'on-failure', 'always'],
-                        description: '崩溃后是否重启',
-                        default: 'on-failure'
-                    }
-                },
-                required: []
+                    required: []
+                }
             }
         }
     };
@@ -296,23 +428,8 @@ async function gatewayStarter(
     if (!agent) {
         agent = new AutoHealingAgent([{
             role: 'system',
-            content: `你是网关守护 Agent,专门处理 Node.js 网关进程的启动与崩溃修复。
-
-当前环境:
-- 操作系统: ${os.platform()}
-- 工作目录: ${SECURITY.ALLOWED_ROOT}
-- 允许命令: ${SECURITY.ALLOWED_COMMANDS.join(', ')}
-
-错误诊断指南:
-1. Cannot find module → npm install xxx
-2. EADDRINUSE(端口占用) → lsof -i :PORT -t | xargs kill -9
-3. TypeScript错误 → tsc --noEmit 后修复类型
-4. 内存溢出 → node --max-old-space-size=4096
-
-
-输出格式必须是纯JSON(不要markdown):
-{"action":"execute_command","command":"...","reason":"...","retry_after":true}`
-        }], [createGatewayStarterTool()]);
+            content: GATEWAY_SYSTEM_PROMPT
+        }], [createGatewayStarterTool(), readFileTool(), executeCommandTool()]);
     }
 
     let restartCount = 0;
@@ -345,8 +462,8 @@ async function gatewayStarter(
             const recentLogs = (errorData?.logs || []).slice(-50).join('\n');
             const errorMsg = `网关异常退出，最近日志:\n${recentLogs.slice(-10000)}`;
 
-            // 清空上下文，准备修复
-            agent.clean();
+            // 距离最后一次重启超过20秒才清空上下文
+            if (lastRestartTime < (Date.now() - 20 * 1000)) agent.clean();
 
             // 尝试修复
             const fixed = await agent.fixError(new Error('Gateway crashed'), errorMsg);
@@ -441,6 +558,31 @@ async function executeCommand(rawCommand: string): Promise<{ success: boolean, o
         });
     });
 }
+/**
+ * 创建跨平台执行器的 AI Tool 定义
+ */
+function executeCommandTool() {
+    return {
+        fun: executeCommand,
+        tool: {
+            type: 'function',
+            function: {
+                name: 'execute_command',
+                description: `执行系统命令，用于修复代码、安装依赖或运行测试。命令会在安全目录下执行，有超时限制。指令受白名单限制：${SECURITY.ALLOWED_COMMANDS.join(', ')}`,
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        command: {
+                            type: 'string',
+                            description: '要执行的完整命令行，例如 "npm install", "ls -la"'
+                        }
+                    },
+                    required: ['command']
+                }
+            }
+        }
+    }
+}
 // #endregion 跨平台执行器
 
 // ==================== 安全校验逻辑 ====================
@@ -487,16 +629,21 @@ interface Message {
      * - user: 用户输入，人类的提问或指令
      * - assistant: AI助手的回复，用于保存历史上下文
      */
-    role: 'system' | 'user' | 'assistant';
+    role: 'system' | 'tool' | 'user' | 'assistant';
     content: string;
+    /** tool 使用，必须对应ai的 id */
+    tool_call_id?: string,
+    /** tool 使用 */
+    name?: string,
+}
+type ToolCall = {
+    id: string;
+    type: 'function';
+    function: { name: string; arguments: string };
 }
 type ChatResult = {
     content: string | null;
-    tool_calls?: {
-        id: string;
-        type: 'function';
-        function: { name: string; arguments: string };
-    }[];
+    tool_calls?: ToolCall[];
 };
 /** 可打断的聊天任务 */
 interface ChatTask {
@@ -587,7 +734,8 @@ class AutoHealingAgent {
     // 防止并发冲突
     private isProcessing = false;
     private id = 0;
-    private tools: any[] = [];
+    private tools: Tool[] = [];
+    private toolMaps: { [key: string]: Function } = {};
 
     /** 打印日志 */
     log(...args: any[]) {
@@ -600,7 +748,13 @@ class AutoHealingAgent {
     constructor(messages: Message[] = [], tools?: any[]) {
         this.id = CONFIG.agentId++;
         this.messages = messages;
-        if (tools) this.tools = tools;
+        if (tools) {
+            this.toolMaps = {};
+            this.tools = tools.map((t: ToolWarp) => {
+                this.toolMaps[t.tool.function.name] = t.fun;
+                return t.tool;
+            });
+        }
     }
 
     /**
@@ -628,31 +782,11 @@ class AutoHealingAgent {
         for (let i = 0; i < CONFIG.MAX_TURNS; i++) {
             try {
                 this.log(`🤖 ${CONFIG.MODEL}尝试修复中... (${i + 1}/${CONFIG.MAX_TURNS})`);
-                const content = await this.input('请继续');
-
-                // 解析JSON动作
-                const action = this.parseAction(content);
-                // 执行动作
-                let result: string;
-                if (!action) {
-                    result = '无法识别的action,请再次尝试';
-                    this.log('⚠️ 无法识别的action');
-                } else if (action.action === 'read_file') {
-                    result = await this.readFile(action.path);
-                } else if (action.action === 'execute_command') {
-                    const exec = await executeCommand(action.command);
-                    result = exec.output;
-                    if (exec.success) {
-                        this.log('✅ 修复成功');
-                        this.isProcessing = false;
-                        return true;
-                    }
-                } else {
-                    result = '未知动作';
+                const result = await this.input('请继续');
+                if (result.callResults['execute_command']?.success) {
+                    this.log('✅ 修复成功');
+                    return true;
                 }
-
-                // 反馈给AI
-                this.messages.push({ role: 'user', content: `执行结果: ${result.substring(0, 500)}` });
             } catch (err) {
                 this.error('修复时异常', err)
             }
@@ -660,75 +794,85 @@ class AutoHealingAgent {
         this.isProcessing = false;
         return false;
     }
-
-    private parseAction(content: string): any {
-        try {
-            // 提取JSON（支持被markdown包裹的情况）
-            const clean = content.replace(/```json\s*|\s*```/g, '').trim();
-            const json = clean.match(/\{[\s\S]*\}/)?.[0];
-            if (!json) return null;
-            return JSON.parse(json);
-        } catch {
-            return null;
-        }
-    }
-
-    private async readFile(filePath: string): Promise<string> {
-        try {
-            // 安全检查：只允许读取当前目录下文件
-            const resolved = path.resolve(filePath);
-            if (!resolved.startsWith(SECURITY.ALLOWED_ROOT)) {
-                return '错误: 路径超出项目范围';
-            }
-            return fs.readFileSync(resolved, 'utf-8');
-        } catch (e) {
-            const message = e instanceof Error ? e.message : String(e);
-            return `读取失败: ${message}`;
-        }
-    }
     /** 打断当前正在进行的对话 */
     stop() { }
     /** 清理消息，只保留第一条消息 */
     clean() {
         this.messages.splice(1)
     }
+    /** 调用工具函数 */
+    async calls(tool_calls: ToolCall[] | undefined) {
+        let re: { [key: string]: any } = {};
+        if (tool_calls && tool_calls.length > 0) {
+            for (const call of tool_calls) {
+                const args = JSON.parse(call.function.arguments);
+                const fun = this.toolMaps[call.function.name];
+                if (typeof fun == 'function') {
+                    try {
+                        this.log('☎️ 调用函数', call.function.name, args);
+                        re[call.function.name] = {
+                            role: "tool",
+                            tool_call_id: call.id,
+                            name: call.function.name,
+                            content: ''
+                        };
+                        if (call.function.name === 'start_gateway_guardian') {
+                            // 启动网关
+                            gatewayStarter(this, {
+                                command: args.command,
+                                restartPolicy: args.restart_policy
+                            });
+                            re[call.function.name].content = `已启动网关守护，命令: ${args.command || CONFIG.GATEWAY_CMD}`;
+                            // } else if (call.function.name === 'execute_command') {
+                            //     const exec = await executeCommand(args.command);
+                            //     re[call.function.name] = exec;
+                        } else {
+                            // 通用函数调用
+                            re[call.function.name].content = await fun(args);
+                        }
+                    } catch (err) {
+                        // 异常
+                        const message = err instanceof Error ? err.message : String(err);
+                        re[call.function.name].content = '代码执行出现异常,异常信息: ' + message;
+                    }
+                }
+            }
+        }
+        // 反馈给AI
+        Object.values(re).forEach(msg => this.messages.push(msg))
+        return re;
+    }
     /**
      * 输入文字消息，会打断上一条消息，如果上一条消息还没有处理完成则会被清理
      * @param txt 输入的消息
      * @returns 
      */
-    async input(txt: string) {
+    async input(txt: string): Promise<{ re: string, callResults: { [key: string]: any } }> {
         try { this.stop(); } catch (err) { }
         this.log('🧑:', txt);
         this.messages.push({ role: 'user', content: txt });
         const chatTask = chatCompletion(this.messages, this.tools.length > 0 ? this.tools : undefined);
-        this.log('请求中,请稍等...');
+        this.log('ai思考中,请稍等...');
         this.stop = typeof chatTask.abort == 'function' ? chatTask.abort : () => { };
-        return chatTask.data.then(json => {
+        return chatTask.data.then(async json => {
             const re = json.content ?? '';
             this.log('🤖:', re);
             this.messages.push({
                 role: 'assistant',
                 content: re
             });
-            // 处理 AI 请求调用工具的情况
-            if (json.tool_calls && json.tool_calls.length > 0) {
-                for (const call of json.tool_calls) {
-                    if (call.function.name === 'start_gateway_guardian') {
-                        const args = JSON.parse(call.function.arguments);
-                        // 启动网关
-                        gatewayStarter(this, {
-                            command: args.command,
-                            restartPolicy: args.restart_policy
-                        });
-                        return `已启动网关守护，命令: ${args.command || CONFIG.GATEWAY_CMD}`;
-                    }
-                }
+            // 处理 AI 请求调用工具
+            let callResults = await this.calls(json.tool_calls);
+            return {
+                re,
+                callResults
             }
-            return re
         }).catch(err => {
             this.error('消息处理异常', err);
-            return '';
+            return {
+                re: '',
+                callResults: {}
+            };
         });
     }
 }
@@ -736,28 +880,10 @@ class AutoHealingAgent {
 
 // ==================== 全局异常拦截器 ====================
 // #region 全局异常拦截器
-export function selfHealing() {
+function selfHealing() {
     const agent = new AutoHealingAgent([{
-        role: 'system', content: `你是Node.js环境自动修复Agent, 运行在${os.platform()}
-当前工作目录: ${SECURITY.ALLOWED_ROOT}
-平台Shell: ${CONFIG.SHELL}
-
-可用修复工具:
-1. read_file: 读取文件分析错误
-2. execute_command: 执行修复命令(受白名单限制：${SECURITY.ALLOWED_COMMANDS.join(', ')})
-
-特殊工具:
-- 如需启动/重启网关，可调用工具: start_gateway_guardian
-  参数: {command?: string, restart_policy?: "never"|"on-failure"|"always"}
-
-自动修复策略(按优先级):
-- 模块缺失 → npm install / yarn add
-- 权限错误 → 检查package.json或目录权限
-- 缓存问题 → rm -rf node_modules && npm install  
-- 类型错误 → tsc --noEmit 检查
-
-输出格式必须是纯JSON(不要markdown):
-{"action":"execute_command","command":"npm install","reason":"修复缺失依赖xxx"}` }]);
+        role: 'system', content: SELF_HEALING_SYSTEM_PROMPT
+    }], [readFileTool(), executeCommandTool()]);
     const errorCache: Error[] = [];
     const MAX_CACHE_SIZE = 10;
     /**
@@ -871,3 +997,72 @@ class FilePoller {
     }
 }
 // #endregion 文件轮询输入
+
+// ==================== 辅助函数 ====================
+/**
+ * ai 的tool工具
+ */
+interface Tool {
+    type: 'function',
+    function: {
+        name: string,
+        description: string,
+        parameters: {
+            type: 'object',
+            properties: {
+                path: {
+                    type: 'string',
+                    description: '文件的绝对路径或相对路径'
+                }
+            },
+            required: ['path']
+        }
+    }
+};
+interface ToolWarp {
+    /** 执行函数 */
+    fun: Function;
+    /** 函数的 Schema */
+    tool: Tool
+}
+// #region 辅助函数
+async function readFile(filePath: string): Promise<string> {
+    try {
+        // 安全检查：只允许读取当前目录下文件
+        const resolved = path.resolve(filePath);
+        if (!resolved.startsWith(SECURITY.ALLOWED_ROOT)) {
+            return '错误: 路径超出项目范围';
+        }
+        return fs.readFileSync(resolved, 'utf-8');
+    } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        return `读取失败: ${message}`;
+    }
+}
+
+/**
+ * 创建读取文件的 AI Tool 定义
+ */
+function readFileTool() {
+    return {
+        fun: readFile,
+        tool: {
+            type: 'function',
+            function: {
+                name: 'read_file',
+                description: '读取指定路径的文件内容',
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        path: {
+                            type: 'string',
+                            description: '文件的绝对路径或相对路径'
+                        }
+                    },
+                    required: ['path']
+                }
+            }
+        }
+    }
+}
+// #endregion 辅助函数
