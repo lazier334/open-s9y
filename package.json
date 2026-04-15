@@ -20,7 +20,8 @@
   "scripts": {
     "start": "node --env-file=.env agent.ts",
     "dev": "node --env-file=.env agent.ts --dev",
-    "gateway": "node --env-file=.env --experimental-strip-types src/index.ts"
+    "gateway": "node --env-file=.env --experimental-strip-types src/index.ts",
+    "demo": "node  --env-file=.env --experimental-strip-types examples/runner.ts"
   },
   "dependencies": {
     "fastify": "^5.8.4",

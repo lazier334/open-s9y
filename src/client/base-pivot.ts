@@ -6,6 +6,8 @@ export interface BasePivotOptions {
   pivotId: string;
   type: PivotType;
   capabilities?: Record<string, unknown>;
+  /** 该支点的价格表标识（支持动态定价，仅做标记用） */
+  priceTable?: string;
   heartbeatInterval?: number;
   /** 使用 WebSocket 长连接，否则使用 HTTP 短连接 */
   useWebSocket?: boolean;
@@ -18,7 +20,7 @@ export interface BasePivotOptions {
  * - 实现统一3接口：push / progress / result
  */
 export abstract class BasePivot {
-  protected options: BasePivotOptions;
+  options: BasePivotOptions;
   protected ws?: WebSocket;
   protected heartbeatTimer?: NodeJS.Timeout;
   protected pendingRequests = new Map<string, { resolve: (v: unknown) => void; reject: (e: unknown) => void }>();
@@ -133,6 +135,7 @@ export abstract class BasePivot {
         pivotId: this.options.pivotId,
         type: this.options.type,
         capabilities: this.options.capabilities,
+        priceTable: this.options.priceTable,
       },
       traceId: crypto.randomUUID(),
       timestamp: Date.now(),

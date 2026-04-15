@@ -5,7 +5,7 @@
 
 export type MessageType = "push" | "progress" | "result" | "register" | "heartbeat";
 
-export type PivotType = "user-end" | "agent" | "system" | "gateway" | "other";
+export type PivotType = "user" | "agent" | "system" | "gateway" | "tool" | "other";
 
 export interface MessagePayload {
   taskId?: string;
@@ -13,6 +13,8 @@ export interface MessagePayload {
   capabilities?: Record<string, unknown> | string;
   error?: string;
   status?: string;
+  /** 本次消息消耗的价格（支持动态定价场景） */
+  cost?: string;
   // register 消息额外字段
   pivotId?: string;
   type?: PivotType;
@@ -37,6 +39,8 @@ export interface PivotInfo {
   pivotId: string;
   type: PivotType;
   capabilities?: Record<string, unknown>;
+  /** 该支点的价格表标识（支持动态定价，仅做标记用） */
+  priceTable?: string;
 }
 
 export interface Status {

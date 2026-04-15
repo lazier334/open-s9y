@@ -1,6 +1,6 @@
 import Fastify from "fastify";
 import { WebSocketServer, type WebSocket } from "ws";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import type { Server } from "node:http";
 import { randomUUID } from "node:crypto";
 import type {
@@ -44,6 +44,8 @@ export class GatewayServer implements GatewayAPI {
 
   private pendingRequests = new Map<string, PendingRequest>();
   private pendingStreams = new Map<string, StreamController>();
+  private completedTasks = new Set<string>();
+  private httpPollWaiters = new Map<string, { reply: FastifyReply; timer: NodeJS.Timeout }>();
   private requestTimeout: number;
   private streamTimeout: number;
 
@@ -100,6 +102,16 @@ export class GatewayServer implements GatewayAPI {
    * - 关闭 WebSocketServer 和 Fastify 实例
    */
   async close(): Promise<void> {
+    // 清理 HTTP 长轮询 waiter
+    for (const [pivotId, waiter] of this.httpPollWaiters.entries()) {
+      clearTimeout(waiter.timer);
+      if (!waiter.reply.sent) {
+        waiter.reply.code(503).send({ error: "网关正在关闭" });
+      }
+      this.plugin?.onPivotDisconnect(pivotId);
+    }
+    this.httpPollWaiters.clear();
+
     // 清理 pending
     for (const { reject, timer } of this.pendingRequests.values()) {
       clearTimeout(timer);
@@ -110,6 +122,7 @@ export class GatewayServer implements GatewayAPI {
       controller.close();
       this.pendingStreams.delete(traceId);
     }
+    this.completedTasks.clear();
     this.wss.close();
     await this.fastify.close();
   }
@@ -124,19 +137,32 @@ export class GatewayServer implements GatewayAPI {
    */
   async routeTo(pivotId: string, message: Message): Promise<void> {
     const conn = this.connections.get(pivotId);
-    if (!conn) {
-      throw new Error(`支点离线: ${pivotId}`);
-    }
-    return new Promise((resolve, reject) => {
-      if (conn.socket.readyState !== 1) {
-        reject(new Error(`支点 socket 未打开: ${pivotId}`));
-        return;
-      }
-      conn.socket.send(JSON.stringify(message), (err) => {
-        if (err) reject(err);
-        else resolve();
+    if (conn) {
+      return new Promise((resolve, reject) => {
+        if (conn.socket.readyState !== 1) {
+          reject(new Error(`支点 socket 未打开: ${pivotId}`));
+          return;
+        }
+        conn.socket.send(JSON.stringify(message), (err) => {
+          if (err) reject(err);
+          else resolve();
+        });
       });
-    });
+    }
+
+    // HTTP 长轮询客户端
+    const waiter = this.httpPollWaiters.get(pivotId);
+    if (waiter) {
+      clearTimeout(waiter.timer);
+      this.httpPollWaiters.delete(pivotId);
+      if (!waiter.reply.sent) {
+        const status = message.type === "push" ? "task" : "query";
+        waiter.reply.code(200).send({ status, type: message.type, message });
+      }
+      return;
+    }
+
+    throw new Error(`支点离线: ${pivotId}`);
   }
 
   /**
@@ -294,11 +320,59 @@ export class GatewayServer implements GatewayAPI {
 
   /**
    * 初始化 Fastify HTTP 路由
-   * - POST /push   : 提交任务，必经插件决策
-   * - GET  /progress/:taskId : 查询进度，网关直连
-   * - GET  /result/:taskId   : 查询结果，网关直连
+   * - POST /push         : 提交任务，必经插件决策
+   * - POST /register-poll: HTTP 长轮询注册（供 IoT 等无 WS 能力客户端被动接收任务/查询）
+   * - POST /relay        : 消息中继（供 HTTP 客户端回传 progress/result 响应）
+   * - GET  /progress/:taskId : 查询进度，网关直连（支持 WS 与 HTTP 长轮询客户端）
+   * - GET  /result/:taskId   : 查询结果，网关直连（支持 WS 与 HTTP 长轮询客户端）
+   * - GET  /status/:taskId   : 查询任务状态
    */
   private _setupHttpRoutes(): void {
+    // HTTP 长轮询注册（供 IoT/无 WebSocket 能力的客户端使用）
+    this.fastify.post<{
+      Body: Partial<PivotInfo> & { pivotId?: string };
+    }>("/register-poll", async (request, reply) => {
+      const body = request.body;
+      const pivotId = body.pivotId ?? "unknown";
+      const pivotInfo: PivotInfo = {
+        pivotId,
+        type: body.type ?? "other",
+        capabilities: body.capabilities,
+        priceTable: body.priceTable,
+      };
+
+      const accepted = this.plugin?.onPivotConnect(pivotInfo) ?? true;
+      if (!accepted) {
+        return reply.code(403).send({ error: "被插件拒绝" });
+      }
+
+      // 若同一 pivotId 已有挂起的长轮询，覆盖旧连接
+      const old = this.httpPollWaiters.get(pivotId);
+      if (old) {
+        clearTimeout(old.timer);
+        if (!old.reply.sent) {
+          old.reply.code(503).send({ error: "被新连接覆盖" });
+        }
+        this.httpPollWaiters.delete(pivotId);
+      }
+
+      // 挂起回复，等待任务或超时
+      return new Promise<void>((resolve) => {
+        const timer = setTimeout(() => {
+          if (this.httpPollWaiters.get(pivotId)?.timer === timer) {
+            this.httpPollWaiters.delete(pivotId);
+            this.plugin?.onPivotDisconnect(pivotId);
+          }
+          if (!reply.sent) {
+            reply.code(200).send({ status: "timeout" });
+          }
+          resolve();
+        }, this.requestTimeout);
+
+        this.httpPollWaiters.set(pivotId, { reply, timer });
+      });
+    });
+
     // 提交任务（必经插件）
     this.fastify.post<{ Body: Message }>("/push", async (request, reply) => {
       const message = request.body;
@@ -322,6 +396,56 @@ export class GatewayServer implements GatewayAPI {
       }
     });
 
+    // 消息中继（供 HTTP 长轮询客户端回传 progress/result 响应）
+    this.fastify.post<{ Body: Message }>("/relay", async (request, reply) => {
+      const message = request.body;
+      if (!message?.senderId || !message?.type) {
+        return reply.code(400).send({ error: "消息格式无效" });
+      }
+
+      // 1. 匹配 pendingRequests
+      const pendingReq = this.pendingRequests.get(message.traceId);
+      if (pendingReq) {
+        clearTimeout(pendingReq.timer);
+        this.pendingRequests.delete(message.traceId);
+        if (message.payload?.error) {
+          pendingReq.reject(new Error(String(message.payload.error)));
+        } else {
+          pendingReq.resolve(message.payload?.data ?? message.payload);
+        }
+        return reply.code(200).send({ status: "delivered" });
+      }
+
+      // 2. 匹配 pendingStreams
+      const pendingStream = this.pendingStreams.get(message.traceId);
+      if (pendingStream) {
+        if (message.type === "progress") {
+          const chunk = JSON.stringify(message.payload?.data ?? message.payload) + "\n";
+          pendingStream.enqueue(new TextEncoder().encode(chunk));
+        } else if (message.type === "result") {
+          if (message.payload?.data !== undefined) {
+            const chunk = JSON.stringify(message.payload.data) + "\n";
+            pendingStream.enqueue(new TextEncoder().encode(chunk));
+          }
+          pendingStream.close();
+          this.pendingStreams.delete(message.traceId);
+        }
+        return reply.code(200).send({ status: "delivered" });
+      }
+
+      // 3. 普通消息路由
+      if (message.targetId) {
+        try {
+          await this.routeTo(message.targetId, message);
+          return reply.code(202).send({ status: "accepted" });
+        } catch (err) {
+          return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
+        }
+      }
+
+      return reply.code(400).send({ error: "缺少 targetId 或无法匹配的 traceId" });
+    });
+
     // 查询进度（网关直连）
     this.fastify.get<{ Params: { taskId: string } }>("/progress/:taskId", async (request, reply) => {
       const { taskId } = request.params;
@@ -329,7 +453,7 @@ export class GatewayServer implements GatewayAPI {
       if (!pivotId) {
         return reply.code(404).send({ error: "任务未找到" });
       }
-      if (!this.connections.has(pivotId)) {
+      if (!this.connections.has(pivotId) && !this.httpPollWaiters.has(pivotId)) {
         return reply.code(503).send({ error: "支点离线，任务中断" });
       }
 
@@ -373,7 +497,7 @@ export class GatewayServer implements GatewayAPI {
       if (!pivotId) {
         return reply.code(404).send({ error: "任务未找到" });
       }
-      if (!this.connections.has(pivotId)) {
+      if (!this.connections.has(pivotId) && !this.httpPollWaiters.has(pivotId)) {
         return reply.code(503).send({ error: "支点离线，任务中断" });
       }
 
@@ -388,10 +512,37 @@ export class GatewayServer implements GatewayAPI {
 
       try {
         const data = await this.requestTo(pivotId, message);
+        if (this.completedTasks.size > 10000) {
+          const first = this.completedTasks.values().next().value;
+          if (first) this.completedTasks.delete(first);
+        }
+        this.completedTasks.add(taskId);
         return reply.code(200).send({ taskId, data });
       } catch (err) {
         return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
       }
+    });
+
+    // 查询任务状态（轻量，仅基于网关内存状态）
+    this.fastify.get<{ Params: { taskId: string } }>("/status/:taskId", async (request, reply) => {
+      const { taskId } = request.params;
+
+      if (this.completedTasks.has(taskId)) {
+        return reply.code(200).send({ taskId, status: "completed", description: "已处理完成" });
+      }
+
+      const pivotId = this.router.getPivotId(taskId);
+      if (!pivotId) {
+        return reply
+          .code(404)
+          .send({ taskId, status: "lost", description: "任务丢失（接收到任务但是还没来得及保存或处理，重启或其他原因导致任务丢失）" });
+      }
+
+      if (!this.connections.has(pivotId) && !this.httpPollWaiters.has(pivotId)) {
+        return reply.code(503).send({ taskId, status: "offline", description: "离线" });
+      }
+
+      return reply.code(200).send({ taskId, status: "processing", description: "数据准备中" });
     });
   }
 }
