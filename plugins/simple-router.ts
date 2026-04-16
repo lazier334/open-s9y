@@ -29,31 +29,36 @@ export class SimpleRouterPlugin implements GatewayPlugin {
   /**
    * 新支点连接时的处理逻辑
    * - 将支点信息存入内部 Map
-   * - 初始化 assignedCount 为 0
+   * - 若已存在则更新信息，保留 assignedCount
    * @param pivotInfo - 支点注册信息
    * @returns 固定返回 true，表示接受所有支点
    */
   onPivotConnect(pivotInfo: PivotInfo): boolean {
+    const existing = this.pivots.get(pivotInfo.pivotId);
     this.pivots.set(pivotInfo.pivotId, {
       pivotId: pivotInfo.pivotId,
       type: pivotInfo.type ?? "other",
       capabilities: pivotInfo.capabilities ?? {},
-      status: {
+      status: existing?.status ?? {
         connectedAt: Date.now(),
         lastHeartbeatAt: Date.now(),
       },
-      assignedCount: 0,
+      assignedCount: existing?.assignedCount ?? 0,
     });
     return true;
   }
 
   /**
    * 支点断开时的处理逻辑
-   * - 从内部 Map 中移除该支点
+   * - 保留在内部 Map 中（缓存有效期内仍可用于负载均衡）
+   * - 仅更新最后活跃时间
    * @param pivotId - 断开连接的支点 ID
    */
   onPivotDisconnect(pivotId: string): void {
-    this.pivots.delete(pivotId);
+    const pivot = this.pivots.get(pivotId);
+    if (pivot) {
+      pivot.status = { ...pivot.status, lastHeartbeatAt: Date.now() };
+    }
   }
 
   /**
@@ -112,5 +117,3 @@ export class SimpleRouterPlugin implements GatewayPlugin {
     }
   }
 }
-
-export default new SimpleRouterPlugin();

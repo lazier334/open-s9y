@@ -7,7 +7,6 @@ import type {
   Message,
   GatewayAPI,
   PivotInfo,
-  PivotType,
 } from "../protocol/message.ts";
 import type { GatewayPlugin } from "../plugin/interface.ts";
 import { ConnectionManager } from "./connection.ts";
@@ -19,14 +18,17 @@ type PendingRequest = {
   timer: NodeJS.Timeout;
 };
 
-type StreamController = ReadableStreamDefaultController<Uint8Array>;
+type PipeWaiter = {
+  reply: FastifyReply;
+  timer: NodeJS.Timeout;
+};
 
 export interface GatewayServerOptions {
   port?: number;
   heartbeatInterval?: number;
   pivotTimeout?: number;
   requestTimeout?: number;
-  streamTimeout?: number;
+  pivotCacheTTL?: number;
 }
 
 /**
@@ -43,11 +45,9 @@ export class GatewayServer implements GatewayAPI {
   plugin?: GatewayPlugin;
 
   private pendingRequests = new Map<string, PendingRequest>();
-  private pendingStreams = new Map<string, StreamController>();
   private completedTasks = new Set<string>();
-  private httpPollWaiters = new Map<string, { reply: FastifyReply; timer: NodeJS.Timeout }>();
+  private pipeWaiters = new Map<string, PipeWaiter>();
   private requestTimeout: number;
-  private streamTimeout: number;
 
   /**
    * 构造 GatewayServer 实例
@@ -58,16 +58,15 @@ export class GatewayServer implements GatewayAPI {
     this.wss = new WebSocketServer({ server: this.fastify.server as Server });
     this.router = new TaskRouter();
     this.requestTimeout = options.requestTimeout ?? 30_000;
-    this.streamTimeout = options.streamTimeout ?? 60_000;
 
     this.connections = new ConnectionManager(
       {
         heartbeatInterval: options.heartbeatInterval,
         pivotTimeout: options.pivotTimeout,
+        pivotCacheTTL: options.pivotCacheTTL,
       },
       {
         onDisconnect: (pivotId) => {
-          // 保留 taskRouting，由查询时判断是否离线返回错误
           this.plugin?.onPivotDisconnect(pivotId);
         },
       }
@@ -98,31 +97,26 @@ export class GatewayServer implements GatewayAPI {
 
   /**
    * 优雅关闭服务器
-   * - 清空所有 pending 的请求和流
-   * - 关闭 WebSocketServer 和 Fastify 实例
+   * - 清空所有 pending 的请求和查询 waiters
+   * - 关闭 ConnectionManager、WebSocketServer 和 Fastify 实例
    */
   async close(): Promise<void> {
-    // 清理 HTTP 长轮询 waiter
-    for (const [pivotId, waiter] of this.httpPollWaiters.entries()) {
+    for (const waiter of this.pipeWaiters.values()) {
       clearTimeout(waiter.timer);
       if (!waiter.reply.sent) {
         waiter.reply.code(503).send({ error: "网关正在关闭" });
       }
-      this.plugin?.onPivotDisconnect(pivotId);
     }
-    this.httpPollWaiters.clear();
+    this.pipeWaiters.clear();
 
-    // 清理 pending
     for (const { reject, timer } of this.pendingRequests.values()) {
       clearTimeout(timer);
       reject(new Error("网关正在关闭"));
     }
     this.pendingRequests.clear();
-    for (const [traceId, controller] of this.pendingStreams.entries()) {
-      controller.close();
-      this.pendingStreams.delete(traceId);
-    }
     this.completedTasks.clear();
+
+    this.connections.close();
     this.wss.close();
     await this.fastify.close();
   }
@@ -131,70 +125,35 @@ export class GatewayServer implements GatewayAPI {
 
   /**
    * 向指定支点发送消息（GatewayAPI 实现）
+   * - 统一调用 Connection.send，WS 与 HTTP 的具体实现在 ConnectionManager 中注入
    * @param pivotId - 目标支点 ID
    * @param message - 要发送的内部 Message
-   * @throws 支点离线或 socket 未打开时抛出错误
+   * @throws 支点离线时抛出错误
    */
   async routeTo(pivotId: string, message: Message): Promise<void> {
     const conn = this.connections.get(pivotId);
     if (conn) {
-      return new Promise((resolve, reject) => {
-        if (conn.socket.readyState !== 1) {
-          reject(new Error(`支点 socket 未打开: ${pivotId}`));
-          return;
-        }
-        conn.socket.send(JSON.stringify(message), (err) => {
-          if (err) reject(err);
-          else resolve();
-        });
-      });
-    }
-
-    // HTTP 长轮询客户端
-    const waiter = this.httpPollWaiters.get(pivotId);
-    if (waiter) {
-      clearTimeout(waiter.timer);
-      this.httpPollWaiters.delete(pivotId);
-      if (!waiter.reply.sent) {
-        const status = message.type === "push" ? "task" : "query";
-        waiter.reply.code(200).send({ status, type: message.type, message });
+      try {
+        conn.send(message);
+      } catch (err) {
+        // 预留的能力，后续如果需要完整确认消息是否发送
+        // 1. 可以在这里做异常检测然后发给其他支点重试
+        // 2. 可以直接根据私定协议来判断是否发送成功
+        console.error('消息发送失败!', err)
       }
       return;
     }
-
     throw new Error(`支点离线: ${pivotId}`);
   }
 
   /**
    * 向指定支点打开一个可读流，用于接收流式进度（GatewayAPI 实现）
-   * @param pivotId - 目标支点 ID
-   * @param message - 包含 traceId 的 Message，用于关联流式响应
-   * @returns ReadableStream<Uint8Array>
+   * 新架构下主要使用 pipeWaiter 管道，此接口保留兼容
    */
   openStream(pivotId: string, message: Message): ReadableStream<Uint8Array> {
     return new ReadableStream<Uint8Array>({
       start: (controller) => {
-        this.pendingStreams.set(message.traceId, controller);
-        this.routeTo(pivotId, message).catch((err) => {
-          controller.error(err);
-          this.pendingStreams.delete(message.traceId);
-        });
-        const timer = setTimeout(() => {
-          const ctrl = this.pendingStreams.get(message.traceId);
-          if (ctrl) {
-            ctrl.close();
-            this.pendingStreams.delete(message.traceId);
-          }
-        }, this.streamTimeout);
-        // 在 stream close/error 时清理 timer，这里用简单方式处理
-        const originalClose = controller.close.bind(controller);
-        controller.close = () => {
-          clearTimeout(timer);
-          originalClose();
-        };
-      },
-      cancel: () => {
-        this.pendingStreams.delete(message.traceId);
+        controller.close();
       },
     });
   }
@@ -228,13 +187,13 @@ export class GatewayServer implements GatewayAPI {
   /**
    * 初始化 WebSocketServer 事件监听
    * - 处理支点连接、消息、关闭、错误事件
-   * - 负责心跳、注册、请求/流响应消息分发
+   * - 负责心跳、注册、push 消息分发
    */
   private _setupWebSocket(): void {
     this.wss.on("connection", (socket) => {
       let pivotId: string | undefined;
 
-      socket.on("message", (raw) => {
+      socket.on("message", async (raw: Buffer) => {
         try {
           const message = JSON.parse(raw.toString()) as Message;
 
@@ -249,19 +208,29 @@ export class GatewayServer implements GatewayAPI {
 
           // 注册消息
           if (message.type === "register") {
-            const info = message.payload as unknown as PivotInfo & { pivotId?: string; type?: PivotType };
+            const info = message.payload as unknown as PivotInfo & { pivotId?: string };
             pivotId = info.pivotId ?? message.senderId;
+
+            const result = this.connections.tryRegister(pivotId);
+            if (!result.accepted) {
+              socket.close(1008, result.reason);
+              return;
+            }
+
+            const cached = this.connections.getCache(pivotId);
             const pivotInfo: PivotInfo = {
               pivotId,
-              type: info.type ?? "other",
-              capabilities: info.capabilities,
+              type: info.type ?? cached?.pivotInfo.type ?? "other",
+              capabilities: info.capabilities ?? cached?.pivotInfo.capabilities,
+              priceTable: info.priceTable ?? cached?.pivotInfo.priceTable,
             };
+
             const accepted = this.plugin?.onPivotConnect(pivotInfo) ?? true;
             if (!accepted) {
               socket.close(1008, "被插件拒绝");
               return;
             }
-            this.connections.add(pivotId, socket, pivotInfo);
+            this.connections.addWs(pivotId, pivotInfo, socket);
             return;
           }
 
@@ -278,25 +247,21 @@ export class GatewayServer implements GatewayAPI {
             return;
           }
 
-          // 流式消息处理
-          const pendingStream = this.pendingStreams.get(message.traceId);
-          if (pendingStream) {
-            if (message.type === "progress") {
-              const chunk = JSON.stringify(message.payload?.data ?? message.payload) + "\n";
-              pendingStream.enqueue(new TextEncoder().encode(chunk));
-            } else if (message.type === "result") {
-              if (message.payload?.data !== undefined) {
-                const chunk = JSON.stringify(message.payload.data) + "\n";
-                pendingStream.enqueue(new TextEncoder().encode(chunk));
+          // 普通上行消息（Agent / User / Gateway 等通过 WS 提交的任务）
+          if (message.type === "push") {
+            if (!this.plugin) return;
+            try {
+              const targetPivotId = message.targetId ?? await this.plugin.onTaskSubmit(message);
+              await this.routeTo(targetPivotId, { ...message, targetId: targetPivotId });
+              if (message.payload?.taskId) {
+                this.router.setRoute(message.payload.taskId, targetPivotId);
+                this.plugin.onTaskAssigned?.(message.payload.taskId, targetPivotId);
               }
-              pendingStream.close();
-              this.pendingStreams.delete(message.traceId);
+            } catch {
+              // ignore routing error
             }
             return;
           }
-
-          // 普通上行消息（Agent 主动推送）
-          // 当前不做额外处理，可扩展
         } catch {
           // ignore invalid message
         }
@@ -304,13 +269,13 @@ export class GatewayServer implements GatewayAPI {
 
       socket.on("close", () => {
         if (pivotId) {
-          this.connections.remove(pivotId);
+          this.connections.removeWs(pivotId);
         }
       });
 
       socket.on("error", () => {
         if (pivotId) {
-          this.connections.remove(pivotId);
+          this.connections.removeWs(pivotId);
         }
       });
     });
@@ -320,56 +285,69 @@ export class GatewayServer implements GatewayAPI {
 
   /**
    * 初始化 Fastify HTTP 路由
-   * - POST /push         : 提交任务，必经插件决策
-   * - POST /register-poll: HTTP 长轮询注册（供 IoT 等无 WS 能力客户端被动接收任务/查询）
-   * - POST /relay        : 消息中继（供 HTTP 客户端回传 progress/result 响应）
-   * - GET  /progress/:taskId : 查询进度，网关直连（支持 WS 与 HTTP 长轮询客户端）
-   * - GET  /result/:taskId   : 查询结果，网关直连（支持 WS 与 HTTP 长轮询客户端）
-   * - GET  /status/:taskId   : 查询任务状态
+   * - POST /push              : 提交任务，必经插件决策
+   * - POST /register          : 长轮询注册并等待消息下发
+   * - GET  /pipe/:taskId      : 消费者挂起等待管道数据
+   * - POST /pipe/:taskId      : 生产者回传管道数据
    */
   private _setupHttpRoutes(): void {
-    // HTTP 长轮询注册（供 IoT/无 WebSocket 能力的客户端使用）
+    // 注册（长轮询等待消息）
     this.fastify.post<{
       Body: Partial<PivotInfo> & { pivotId?: string };
-    }>("/register-poll", async (request, reply) => {
+    }>("/register", async (request, reply) => {
       const body = request.body;
       const pivotId = body.pivotId ?? "unknown";
+      const send = (msg: any, code: number = 200) => {
+        if (!reply.sent) reply.code(code).send(msg);
+        else throw new Error('当前请求已响应');
+      };
+
+      const result = this.connections.tryRegister(pivotId);
+      if (!result.accepted) {
+        return send({ error: result.reason }, 409);
+      }
+
+      const cached = this.connections.getCache(pivotId);
       const pivotInfo: PivotInfo = {
         pivotId,
-        type: body.type ?? "other",
-        capabilities: body.capabilities,
-        priceTable: body.priceTable,
+        type: body.type ?? cached?.pivotInfo.type ?? "other",
+        capabilities: body.capabilities ?? cached?.pivotInfo.capabilities,
+        priceTable: body.priceTable ?? cached?.pivotInfo.priceTable,
       };
 
       const accepted = this.plugin?.onPivotConnect(pivotInfo) ?? true;
       if (!accepted) {
-        return reply.code(403).send({ error: "被插件拒绝" });
+        return send({ error: "被插件拒绝注册" }, 403);
       }
+      const conn = this.connections.addHttp(pivotId, pivotInfo, reply);
+      conn.send = send;
 
-      // 若同一 pivotId 已有挂起的长轮询，覆盖旧连接
-      const old = this.httpPollWaiters.get(pivotId);
-      if (old) {
-        clearTimeout(old.timer);
-        if (!old.reply.sent) {
-          old.reply.code(503).send({ error: "被新连接覆盖" });
+      return new Promise<void>((resolve, reject) => {
+        // 心跳包定时器id占位符
+        let timer: any;
+        // 清理连接
+        const cleanConn = () => {
+          try {
+            clearTimeout(timer);
+            conn.send = () => { throw new Error("HTTP 连接已断开") };
+            if (this.connections.get(pivotId) === conn) {
+              this.connections.removeHttp(pivotId, false);
+            }
+            resolve();
+          } catch (err) {
+            reject(err)
+          }
         }
-        this.httpPollWaiters.delete(pivotId);
-      }
-
-      // 挂起回复，等待任务或超时
-      return new Promise<void>((resolve) => {
-        const timer = setTimeout(() => {
-          if (this.httpPollWaiters.get(pivotId)?.timer === timer) {
-            this.httpPollWaiters.delete(pivotId);
-            this.plugin?.onPivotDisconnect(pivotId);
-          }
-          if (!reply.sent) {
-            reply.code(200).send({ status: "timeout" });
-          }
-          resolve();
+        timer = setTimeout(() => {
+          send({ type: "noop" }, 200);
+          cleanConn();
         }, this.requestTimeout);
 
-        this.httpPollWaiters.set(pivotId, { reply, timer });
+        conn.send = (msg: Message) => {
+          send(msg, 200);
+          cleanConn();
+        };
+        reply.raw.on('close', cleanConn);
       });
     });
 
@@ -396,153 +374,87 @@ export class GatewayServer implements GatewayAPI {
       }
     });
 
-    // 消息中继（供 HTTP 长轮询客户端回传 progress/result 响应）
-    this.fastify.post<{ Body: Message }>("/relay", async (request, reply) => {
-      const message = request.body;
-      if (!message?.senderId || !message?.type) {
-        return reply.code(400).send({ error: "消息格式无效" });
+    // 统一管道 /pipe
+    this.fastify.get<{ Params: { taskId: string }; Querystring: { protocol?: string; targetPivotId?: string } }>("/pipe/:taskId", async (request, reply) => {
+      const protocol = request.query.protocol ?? "result";
+      const taskId = request.params.taskId;
+      let targetPivotId = request.query.targetPivotId;
+
+      if (!targetPivotId) {
+        targetPivotId = this.router.getPivotId(taskId);
       }
 
-      // 1. 匹配 pendingRequests
-      const pendingReq = this.pendingRequests.get(message.traceId);
-      if (pendingReq) {
-        clearTimeout(pendingReq.timer);
-        this.pendingRequests.delete(message.traceId);
-        if (message.payload?.error) {
-          pendingReq.reject(new Error(String(message.payload.error)));
-        } else {
-          pendingReq.resolve(message.payload?.data ?? message.payload);
-        }
-        return reply.code(200).send({ status: "delivered" });
+      if (!targetPivotId) {
+        return reply.code(404).send({ error: "目标支点未找到" });
       }
 
-      // 2. 匹配 pendingStreams
-      const pendingStream = this.pendingStreams.get(message.traceId);
-      if (pendingStream) {
-        if (message.type === "progress") {
-          const chunk = JSON.stringify(message.payload?.data ?? message.payload) + "\n";
-          pendingStream.enqueue(new TextEncoder().encode(chunk));
-        } else if (message.type === "result") {
-          if (message.payload?.data !== undefined) {
-            const chunk = JSON.stringify(message.payload.data) + "\n";
-            pendingStream.enqueue(new TextEncoder().encode(chunk));
-          }
-          pendingStream.close();
-          this.pendingStreams.delete(message.traceId);
-        }
-        return reply.code(200).send({ status: "delivered" });
+      if (!this.connections.isOnline(targetPivotId)) {
+        return reply.code(503).send({ error: "支点离线" });
       }
 
-      // 3. 普通消息路由
-      if (message.targetId) {
-        try {
-          await this.routeTo(message.targetId, message);
-          return reply.code(202).send({ status: "accepted" });
-        } catch (err) {
-          return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
-        }
-      }
+      this._setPipeWaiter(protocol, taskId, reply);
 
-      return reply.code(400).send({ error: "缺少 targetId 或无法匹配的 traceId" });
-    });
-
-    // 查询进度（网关直连）
-    this.fastify.get<{ Params: { taskId: string } }>("/progress/:taskId", async (request, reply) => {
-      const { taskId } = request.params;
-      const pivotId = this.router.getPivotId(taskId);
-      if (!pivotId) {
-        return reply.code(404).send({ error: "任务未找到" });
-      }
-      if (!this.connections.has(pivotId) && !this.httpPollWaiters.has(pivotId)) {
-        return reply.code(503).send({ error: "支点离线，任务中断" });
-      }
-
-      const message: Message = {
+      const msg: Message = {
         senderId: "gateway",
-        targetId: pivotId,
-        type: "progress",
-        payload: { taskId },
+        targetId: targetPivotId,
+        type: "pipe",
+        payload: { taskId, protocol },
         traceId: randomUUID(),
         timestamp: Date.now(),
       };
 
       try {
-        const stream = this.openStream(pivotId, message);
-        reply.raw.writeHead(200, {
-          "Content-Type": "text/plain; charset=utf-8",
-          "Transfer-Encoding": "chunked",
-        });
-        const reader = stream.getReader();
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            reply.raw.write(value);
-          }
-        } finally {
-          reader.releaseLock();
-        }
-        reply.raw.end();
+        await this.routeTo(targetPivotId, msg);
       } catch (err) {
-        if (!reply.sent) {
-          return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
-        }
+        this._resolvePipeWaiter(protocol, taskId, { error: err instanceof Error ? err.message : String(err) });
       }
     });
 
-    // 查询结果（网关直连）
-    this.fastify.get<{ Params: { taskId: string } }>("/result/:taskId", async (request, reply) => {
-      const { taskId } = request.params;
-      const pivotId = this.router.getPivotId(taskId);
-      if (!pivotId) {
-        return reply.code(404).send({ error: "任务未找到" });
+    this.fastify.post<{ Params: { taskId: string }; Querystring: { protocol?: string }; Body: { data?: unknown; error?: string } }>("/pipe/:taskId", async (request, reply) => {
+      const protocol = request.query.protocol ?? "result";
+      const resolved = this._resolvePipeWaiter(protocol, request.params.taskId, request.body);
+      if (!resolved) {
+        return reply.code(409).send({ error: "消费方不存在" });
       }
-      if (!this.connections.has(pivotId) && !this.httpPollWaiters.has(pivotId)) {
-        return reply.code(503).send({ error: "支点离线，任务中断" });
-      }
+      return reply.code(200).send({ status: "delivered" });
+    });
+  }
 
-      const message: Message = {
-        senderId: "gateway",
-        targetId: pivotId,
-        type: "result",
-        payload: { taskId },
-        traceId: randomUUID(),
-        timestamp: Date.now(),
-      };
+  private _pipeWaiterKey(protocol: string, taskId: string): string {
+    return `${taskId}:${protocol}`;
+  }
 
-      try {
-        const data = await this.requestTo(pivotId, message);
-        if (this.completedTasks.size > 10000) {
-          const first = this.completedTasks.values().next().value;
-          if (first) this.completedTasks.delete(first);
-        }
-        this.completedTasks.add(taskId);
-        return reply.code(200).send({ taskId, data });
-      } catch (err) {
-        return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
+  private _setPipeWaiter(protocol: string, taskId: string, reply: FastifyReply): void {
+    const key = this._pipeWaiterKey(protocol, taskId);
+    const timer = setTimeout(() => {
+      this.pipeWaiters.delete(key);
+      if (!reply.sent) {
+        reply.code(200).send({ error: "超时" });
       }
+    }, this.requestTimeout);
+
+    reply.raw.on("close", () => {
+      clearTimeout(timer);
+      this.pipeWaiters.delete(key);
     });
 
-    // 查询任务状态（轻量，仅基于网关内存状态）
-    this.fastify.get<{ Params: { taskId: string } }>("/status/:taskId", async (request, reply) => {
-      const { taskId } = request.params;
+    this.pipeWaiters.set(key, { reply, timer });
+  }
 
-      if (this.completedTasks.has(taskId)) {
-        return reply.code(200).send({ taskId, status: "completed", description: "已处理完成" });
+  private _resolvePipeWaiter(protocol: string, taskId: string, body: { data?: unknown; error?: string }): boolean {
+    const key = this._pipeWaiterKey(protocol, taskId);
+    const waiter = this.pipeWaiters.get(key);
+    if (!waiter) return false;
+
+    clearTimeout(waiter.timer);
+    this.pipeWaiters.delete(key);
+    if (!waiter.reply.sent) {
+      if (body.error) {
+        waiter.reply.code(500).send({ error: body.error });
+      } else {
+        waiter.reply.code(200).send({ taskId, data: body.data });
       }
-
-      const pivotId = this.router.getPivotId(taskId);
-      if (!pivotId) {
-        return reply
-          .code(404)
-          .send({ taskId, status: "lost", description: "任务丢失（接收到任务但是还没来得及保存或处理，重启或其他原因导致任务丢失）" });
-      }
-
-      if (!this.connections.has(pivotId) && !this.httpPollWaiters.has(pivotId)) {
-        return reply.code(503).send({ taskId, status: "offline", description: "离线" });
-      }
-
-      return reply.code(200).send({ taskId, status: "processing", description: "数据准备中" });
-    });
+    }
+    return true;
   }
 }
