@@ -54,6 +54,17 @@ export interface Status {
 }
 
 /**
+ * /pipe 接口的 Query 参数类型
+ * - GET 和 POST 共用
+ * - targetPivotId 仅在 GET 时有效，用于显式指定目标支点、跳过 TaskRouter
+ */
+export interface PipeQuery {
+  taskId: string;
+  protocol?: string;
+  targetPivotId?: string;
+}
+
+/**
  * 网关对外暴露的 API，供插件调用
  */
 export interface GatewayAPI {

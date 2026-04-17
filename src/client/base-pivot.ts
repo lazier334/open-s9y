@@ -28,8 +28,6 @@ export abstract class BasePivot {
   protected heartbeatTimer?: NodeJS.Timeout;
   protected pendingRequests = new Map<string, { resolve: (v: unknown) => void; reject: (e: unknown) => void }>();
   protected registerAbort?: AbortController;
-  private hasRegisteredBefore = false;
-
   constructor(options: BasePivotOptions) {
     this.options = {
       heartbeatInterval: 30_000,
@@ -77,10 +75,10 @@ export abstract class BasePivot {
 
   /**
    * 获取任务进度（统一接口 2/3）
-   * - 消费者直接 GET /pipe/:taskId?protocol=progress 挂起等待
+   * - 消费者直接 GET /pipe?taskId=...&protocol=progress 挂起等待
    */
   async progress(taskId: string): Promise<ReadableStream<Uint8Array>> {
-    const res = await fetch(`${this.options.gatewayUrl}/pipe/${taskId}?protocol=progress`);
+    const res = await fetch(`${this.options.gatewayUrl}/pipe?taskId=${taskId}&protocol=progress`);
     if (!res.ok) throw new Error(`获取进度失败: ${res.status}`);
     return res.body as ReadableStream<Uint8Array>;
   }
@@ -89,7 +87,7 @@ export abstract class BasePivot {
    * 获取任务结果（统一接口 3/3）
    */
   async result(taskId: string): Promise<unknown> {
-    const res = await fetch(`${this.options.gatewayUrl}/pipe/${taskId}?protocol=result`);
+    const res = await fetch(`${this.options.gatewayUrl}/pipe?taskId=${taskId}&protocol=result`);
     if (!res.ok) throw new Error(`获取结果失败: ${res.status}`);
     const json = (await res.json()) as { data?: unknown; error?: string };
     if (json.error) throw new Error(json.error);
@@ -100,7 +98,7 @@ export abstract class BasePivot {
    * 获取任务状态
    */
   async status(taskId: string): Promise<unknown> {
-    const res = await fetch(`${this.options.gatewayUrl}/pipe/${taskId}?protocol=status`);
+    const res = await fetch(`${this.options.gatewayUrl}/pipe?taskId=${taskId}&protocol=status`);
     if (!res.ok) throw new Error(`获取状态失败: ${res.status}`);
     const json = (await res.json()) as { data?: unknown; error?: string };
     if (json.error) throw new Error(json.error);
@@ -216,14 +214,12 @@ export abstract class BasePivot {
       while (true) {
         if (this.registerAbort?.signal.aborted) break;
         try {
-          const body = this.hasRegisteredBefore
-            ? { pivotId: this.options.pivotId }
-            : {
-              pivotId: this.options.pivotId,
-              type: this.options.type,
-              capabilities: this.options.capabilities,
-              priceTable: this.options.priceTable,
-            };
+          const body = {
+            pivotId: this.options.pivotId,
+            type: this.options.type,
+            capabilities: this.options.capabilities,
+            priceTable: this.options.priceTable,
+          };
 
           const res = await fetch(`${this.options.gatewayUrl}/register`, {
             method: "POST",
@@ -244,7 +240,6 @@ export abstract class BasePivot {
             continue;
           }
 
-          this.hasRegisteredBefore = true;
           const text = await res.text();
           // 为什么不直接使用 res.json() 读取数据？
           // 因为如果消息内容不是json格式会报JSON序列化错误，而且没有可靠的调用栈信息
@@ -280,18 +275,7 @@ export abstract class BasePivot {
       if (protocol === "progress") {
         const stream = this.onProgressRequest?.(taskId);
         if (stream) {
-          const chunks: unknown[] = [];
-          const reader = stream.getReader();
-          try {
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              chunks.push(value);
-            }
-          } finally {
-            reader.releaseLock();
-          }
-          await this._postPipe("progress", taskId, { data: chunks });
+          return await this._postPipeBinaryStream("progress", taskId, stream);
         } else {
           await this._postPipe("progress", taskId, { data: null });
         }
@@ -330,15 +314,52 @@ export abstract class BasePivot {
   }
 
   private async _postPipe(protocol: string, taskId: string, body: { data?: unknown; error?: string }): Promise<void> {
-    const res = await fetch(`${this.options.gatewayUrl}/pipe/${taskId}?protocol=${protocol}`, {
+    const res = await fetch(`${this.options.gatewayUrl}/pipe?taskId=${taskId}&protocol=${protocol}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
     if (!res.ok) {
-      console.error(`[BasePivot] pipe/${protocol} 回传失败:`, res.status);
+      console.error(`[BasePivot] taskId=${taskId}&protocol=${protocol} 回传失败:`, res.status);
     }
   }
+
+  private async _postPipeStream(protocol: string, taskId: string, body: { data?: unknown; done?: boolean; error?: string }): Promise<void> {
+    const res = await fetch(`${this.options.gatewayUrl}/pipe?taskId=${taskId}&protocol=${protocol}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/octet-stream",
+        "X-Pipe-Mode": "stream",
+      },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      console.error(`[BasePivot] taskId=${taskId}&protocol=${protocol} 流式回传失败:`, res.status);
+    }
+  }
+  private async _postPipeBinaryStream(
+    protocol: string,
+    taskId: string,
+    stream: ReadableStream<Uint8Array>
+  ): Promise<void> {
+    const res = await fetch(
+      `${this.options.gatewayUrl}/pipe?taskId=${taskId}&protocol=${protocol}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/octet-stream",
+        },
+        body: stream,
+        // Node.js 18+ 必需
+        duplex: "half",
+      }
+    );
+
+    if (!res.ok) {
+      console.error(`[BasePivot] taskId=${taskId}&protocol=${protocol} 流式回传失败:`, res.status);
+    }
+  }
+
 
   private _delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));

@@ -1,4 +1,5 @@
 import Fastify from "fastify";
+import type { FastifyRequest } from "fastify";
 import { WebSocketServer, type WebSocket } from "ws";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { Server } from "node:http";
@@ -7,6 +8,7 @@ import type {
   Message,
   GatewayAPI,
   PivotInfo,
+  PipeQuery,
 } from "../protocol/message.ts";
 import type { GatewayPlugin } from "../plugin/interface.ts";
 import { ConnectionManager } from "./connection.ts";
@@ -59,6 +61,8 @@ export class GatewayServer implements GatewayAPI {
     this.router = new TaskRouter();
     this.requestTimeout = options.requestTimeout ?? 30_000;
 
+    // 关键：注册 octet-stream 解析器，告诉 Fastify 这种类型直接给原始流
+    this.fastify.addContentTypeParser('application/octet-stream', (request, payload, done) => done(null, payload));
     this.connections = new ConnectionManager(
       {
         heartbeatInterval: options.heartbeatInterval,
@@ -287,8 +291,8 @@ export class GatewayServer implements GatewayAPI {
    * 初始化 Fastify HTTP 路由
    * - POST /push              : 提交任务，必经插件决策
    * - POST /register          : 长轮询注册并等待消息下发
-   * - GET  /pipe/:taskId      : 消费者挂起等待管道数据
-   * - POST /pipe/:taskId      : 生产者回传管道数据
+   * - GET  /pipe?taskId=...&protocol=...      : 消费者挂起等待管道数据
+   * - POST /pipe?taskId=...&protocol=...      : 生产者回传管道数据
    */
   private _setupHttpRoutes(): void {
     // 注册（长轮询等待消息）
@@ -331,7 +335,7 @@ export class GatewayServer implements GatewayAPI {
             clearTimeout(timer);
             conn.send = () => { throw new Error("HTTP 连接已断开") };
             if (this.connections.get(pivotId) === conn) {
-              this.connections.removeHttp(pivotId, false);
+              this.connections.removeHttp(pivotId);
             }
             resolve();
           } catch (err) {
@@ -375,9 +379,9 @@ export class GatewayServer implements GatewayAPI {
     });
 
     // 统一管道 /pipe
-    this.fastify.get<{ Params: { taskId: string }; Querystring: { protocol?: string; targetPivotId?: string } }>("/pipe/:taskId", async (request, reply) => {
+    this.fastify.get<{ Querystring: PipeQuery }>("/pipe", async (request, reply) => {
       const protocol = request.query.protocol ?? "result";
-      const taskId = request.params.taskId;
+      const taskId = request.query.taskId;
       let targetPivotId = request.query.targetPivotId;
 
       if (!targetPivotId) {
@@ -387,7 +391,6 @@ export class GatewayServer implements GatewayAPI {
       if (!targetPivotId) {
         return reply.code(404).send({ error: "目标支点未找到" });
       }
-
       if (!this.connections.isOnline(targetPivotId)) {
         return reply.code(503).send({ error: "支点离线" });
       }
@@ -405,19 +408,41 @@ export class GatewayServer implements GatewayAPI {
 
       try {
         await this.routeTo(targetPivotId, msg);
+        reply.hijack();
       } catch (err) {
         this._resolvePipeWaiter(protocol, taskId, { error: err instanceof Error ? err.message : String(err) });
       }
     });
 
-    this.fastify.post<{ Params: { taskId: string }; Querystring: { protocol?: string }; Body: { data?: unknown; error?: string } }>("/pipe/:taskId", async (request, reply) => {
+
+    this.fastify.post<{ Querystring: PipeQuery }>("/pipe", {
+      // 关键：禁用 body 解析，强制使用原始流
+      config: { rawBody: true },
+      // 禁用 Fastify 的 body 解析，让 request.raw 保持为原始流
+      bodyLimit: 1024 ** 3,
+      preParsing: async (request, reply, payload) => {
+        // 强制设置 content-type 避免 415 错误
+        request.headers['content-type'] = 'application/octet-stream';
+        return payload; // 返回原始流，不进行 JSON 解析
+      }
+    }, async (request, reply) => {
       const protocol = request.query.protocol ?? "result";
-      const resolved = this._resolvePipeWaiter(protocol, request.params.taskId, request.body);
+      const taskId = request.query.taskId;
+
+      if (!taskId) {
+        return reply.code(400).send({ error: "Missing taskId" });
+      }
+
+      // 改为 await 异步处理流
+      const resolved = await this._resolvePipeWaiter(protocol, taskId, request);
       if (!resolved) {
         return reply.code(409).send({ error: "消费方不存在" });
       }
-      return reply.code(200).send({ status: "delivered" });
+
+      // 流结束后返回成功
+      return { status: "delivered" };
     });
+
   }
 
   private _pipeWaiterKey(protocol: string, taskId: string): string {
@@ -429,7 +454,7 @@ export class GatewayServer implements GatewayAPI {
     const timer = setTimeout(() => {
       this.pipeWaiters.delete(key);
       if (!reply.sent) {
-        reply.code(200).send({ error: "超时" });
+        reply.code(504).send({ error: "超时" });
       }
     }, this.requestTimeout);
 
@@ -441,20 +466,104 @@ export class GatewayServer implements GatewayAPI {
     this.pipeWaiters.set(key, { reply, timer });
   }
 
-  private _resolvePipeWaiter(protocol: string, taskId: string, body: { data?: unknown; error?: string }): boolean {
+  private async _resolvePipeWaiter(
+    protocol: string,
+    taskId: string,
+    request: FastifyRequest
+  ): Promise<boolean> {
     const key = this._pipeWaiterKey(protocol, taskId);
     const waiter = this.pipeWaiters.get(key);
-    if (!waiter) return false;
 
-    clearTimeout(waiter.timer);
-    this.pipeWaiters.delete(key);
-    if (!waiter.reply.sent) {
-      if (body.error) {
-        waiter.reply.code(500).send({ error: body.error });
-      } else {
-        waiter.reply.code(200).send({ taskId, data: body.data });
-      }
+    if (!waiter) {
+      console.log('[Gateway] 无等待者:', key);
+      return false;
     }
-    return true;
+
+    const targetRaw = waiter.reply.raw;  // GET 长轮询端
+    const sourceRaw = request.raw;       // POST 上传端
+
+    // 检查 GET 端是否还活着
+    if (targetRaw.writableEnded || targetRaw.destroyed) {
+      console.log('[Gateway] 目标连接已关闭');
+      this.pipeWaiters.delete(key);
+      return false;
+    }
+
+    // === 从 HTTP 头读取元数据（替代第一帧） ===
+    const statusCode = parseInt(request.headers['x-pipe-status'] as string) || 200;
+    let headers: Record<string, string> = {};
+    try {
+      const headerStr = request.headers['x-pipe-headers'] as string;
+      if (headerStr) {
+        headers = JSON.parse(headerStr);
+      }
+    } catch (e) {
+      console.warn('[Gateway] 解析 headers 失败:', e);
+    }
+
+    console.log('[Gateway] 直接管道模式', {
+      taskId,
+      status: statusCode,
+      sourceFlowing: sourceRaw.readableFlowing
+    });
+
+    // 劫持 GET 响应，手动写头
+    waiter.reply.hijack();
+    targetRaw.writeHead(statusCode, {
+      ...headers,
+      'Transfer-Encoding': 'chunked',
+      'X-Pipe-Protocol': protocol,
+      'X-Accel-Buffering': 'no'
+    });
+
+    // === 直接管道，零拷贝 ===
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const cleanup = (success: boolean) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(waiter.timer);
+        this.pipeWaiters.delete(key);
+        success ? resolve(true) : reject(new Error('Stream failed'));
+      };
+
+      // 核心：sourceRaw (POST body) -> targetRaw (GET response)
+      sourceRaw.pipe(targetRaw);
+
+      // 源流结束（FakeAgent 调用 writer.close()）
+      sourceRaw.on('end', () => {
+        console.log('[Gateway] 源流结束，关闭目标');
+        targetRaw.end();
+        cleanup(true);
+      });
+
+      // 错误处理
+      sourceRaw.on('error', (err) => {
+        console.error('[Gateway] 源流错误:', err.message);
+        targetRaw.destroy();
+        cleanup(false);
+      });
+
+      targetRaw.on('error', (err) => {
+        console.error('[Gateway] 目标流错误:', err.message);
+        sourceRaw.destroy();
+        cleanup(false);
+      });
+
+      // GET 客户端断开（浏览器关闭页面）
+      targetRaw.on('close', () => {
+        console.log('[Gateway] 目标关闭（客户端断开）');
+        sourceRaw.destroy();
+        cleanup(false);
+      });
+
+      // 长流传输超时保护（10 倍普通超时）
+      waiter.timer = setTimeout(() => {
+        console.error('[Gateway] 管道传输超时');
+        sourceRaw.destroy();
+        targetRaw.destroy();
+        cleanup(false);
+      }, this.requestTimeout * 10);
+    });
   }
 }
