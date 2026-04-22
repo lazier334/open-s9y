@@ -3,7 +3,7 @@
  * 所有传输层协议（HTTP / WebSocket）最终都转换为 Message 在内部流转
  */
 
-export type MessageType = "push" | "pipe" | "progress" | "result" | "status" | "register" | "heartbeat";
+export type MessageType = "push" | "pipe" | "progress" | "result" | "status" | "register" | "heartbeat" | "pivots";
 
 export type PivotType = "user" | "agent" | "system" | "gateway" | "tool" | "other";
 
@@ -22,6 +22,8 @@ export interface MessagePayload {
   protocol?: string;
   /** 价格表标识 */
   priceTable?: string;
+  /** 同步模式：网关等待目标支点响应后直接返回 */
+  sync?: boolean;
 }
 
 export interface Message {

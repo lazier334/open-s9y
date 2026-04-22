@@ -12,6 +12,8 @@ export interface BasePivotOptions {
   heartbeatInterval?: number;
   /** 使用 WebSocket 长连接，否则使用 HTTP 短连接 */
   useWebSocket?: boolean;
+  /** 本地模式：不建立网络连接，供同一进程内网关直接调用 */
+  localMode?: boolean;
 }
 
 /**
@@ -42,6 +44,7 @@ export abstract class BasePivot {
    * - HTTP 模式：启动 /register 长轮询循环
    */
   async connect(): Promise<void> {
+    if (this.options.localMode) return;
     if (this.options.useWebSocket) {
       return this._connectWs();
     }
@@ -52,6 +55,7 @@ export abstract class BasePivot {
    * 断开与网关的连接
    */
   disconnect(): void {
+    if (this.options.localMode) return;
     this._stopHeartbeat();
     this.ws?.close();
     this.registerAbort?.abort();
@@ -175,9 +179,9 @@ export abstract class BasePivot {
         return;
       }
 
-      // 普通任务推送：由子类处理
+      // 普通任务推送：由子类处理，结果自动回传
       if (msg.type === "push") {
-        this.onTask(msg).catch(() => {
+        this._handleTaskWithReply(msg).catch(() => {
           // ignore
         });
       }
@@ -264,7 +268,7 @@ export abstract class BasePivot {
 
   private async _handleServerMessage(msg: Message): Promise<void> {
     if (msg.type === "push") {
-      await this.onTask(msg).catch(() => { });
+      await this._handleTaskWithReply(msg).catch(() => { });
       return;
     }
 
@@ -361,6 +365,35 @@ export abstract class BasePivot {
   }
 
 
+  private async _handleTaskWithReply(msg: Message): Promise<void> {
+    try {
+      const result = await this.onTask(msg);
+      if (msg.traceId && result !== undefined) {
+        const reply: Message = {
+          senderId: this.options.pivotId,
+          targetId: msg.senderId,
+          type: "push",
+          payload: { data: result },
+          traceId: msg.traceId,
+          timestamp: Date.now(),
+        };
+        await this.push(reply);
+      }
+    } catch (err) {
+      if (msg.traceId) {
+        const reply: Message = {
+          senderId: this.options.pivotId,
+          targetId: msg.senderId,
+          type: "push",
+          payload: { error: err instanceof Error ? err.message : String(err) },
+          traceId: msg.traceId,
+          timestamp: Date.now(),
+        };
+        await this.push(reply);
+      }
+    }
+  }
+
   private _delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
@@ -398,6 +431,7 @@ export abstract class BasePivot {
 
   /**
    * 子类必须实现：处理网关推送过来的任务
+   * 若返回非 undefined 值，SDK 会自动通过相同 traceId 回传响应
    */
-  abstract onTask(message: Message): Promise<void>;
+  abstract onTask(message: Message): Promise<unknown>;
 }

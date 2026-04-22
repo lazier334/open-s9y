@@ -10,7 +10,7 @@ import type {
   PivotInfo,
   PipeQuery,
 } from "../protocol/message.ts";
-import type { GatewayPlugin } from "../plugin/interface.ts";
+import type { BasePivot } from "../client/base-pivot.ts";
 import { ConnectionManager } from "./connection.ts";
 import { TaskRouter } from "./router.ts";
 
@@ -31,6 +31,8 @@ export interface GatewayServerOptions {
   pivotTimeout?: number;
   requestTimeout?: number;
   pivotCacheTTL?: number;
+  /** 远程插件 pivot 的 ID，设置后优先通过 requestTo 调用远程插件 */
+  pluginPivotId?: string;
 }
 
 /**
@@ -44,12 +46,13 @@ export class GatewayServer implements GatewayAPI {
   wss: WebSocketServer;
   connections: ConnectionManager;
   router: TaskRouter;
-  plugin?: GatewayPlugin;
+  pluginPivotId?: string;
 
   private pendingRequests = new Map<string, PendingRequest>();
   private completedTasks = new Set<string>();
   private pipeWaiters = new Map<string, PipeWaiter>();
   private requestTimeout: number;
+  private localPivots = new Map<string, BasePivot>();
 
   /**
    * 构造 GatewayServer 实例
@@ -60,6 +63,7 @@ export class GatewayServer implements GatewayAPI {
     this.wss = new WebSocketServer({ server: this.fastify.server as Server });
     this.router = new TaskRouter();
     this.requestTimeout = options.requestTimeout ?? 30_000;
+    this.pluginPivotId = options.pluginPivotId;
 
     // 关键：注册 octet-stream 解析器，告诉 Fastify 这种类型直接给原始流
     this.fastify.addContentTypeParser('application/octet-stream', (request, payload, done) => done(null, payload));
@@ -70,8 +74,8 @@ export class GatewayServer implements GatewayAPI {
         pivotCacheTTL: options.pivotCacheTTL,
       },
       {
-        onDisconnect: (pivotId) => {
-          this.plugin?.onPivotDisconnect(pivotId);
+        onDisconnect: (_pivotId) => {
+          // 本地 pivot 不依赖此回调，由 RouterPivot 通过 connections.getAll() 实时获取状态
         },
       }
     );
@@ -81,12 +85,34 @@ export class GatewayServer implements GatewayAPI {
   }
 
   /**
-   * 挂载插件实例并初始化
-   * @param plugin - 实现 GatewayPlugin 接口的插件实例
+   * 注册本地 pivot（同一进程内直接调用）
+   * @param pivotId - 本地 pivot ID
+   * @param pivot - BasePivot 子类实例
    */
-  setPlugin(plugin: GatewayPlugin): void {
-    this.plugin = plugin;
-    plugin.initialize(this);
+  registerLocalPivot(pivotId: string, pivot: BasePivot): void {
+    this.localPivots.set(pivotId, pivot);
+  }
+
+  /**
+   * 获取所有支点信息（远程连接 + 本地 pivot）
+   */
+  getAllPivots(): Array<{ pivotId: string; type: string; capabilities?: Record<string, unknown> }> {
+    const result: Array<{ pivotId: string; type: string; capabilities?: Record<string, unknown> }> = [];
+    for (const [pid, conn] of this.connections.getAll()) {
+      result.push({
+        pivotId: pid,
+        type: conn.pivotInfo.type ?? "other",
+        capabilities: conn.pivotInfo.capabilities,
+      });
+    }
+    for (const [pid, pivot] of this.localPivots) {
+      result.push({
+        pivotId: pid,
+        type: pivot.options.type ?? "other",
+        capabilities: pivot.options.capabilities,
+      });
+    }
+    return result;
   }
 
   /**
@@ -130,23 +156,41 @@ export class GatewayServer implements GatewayAPI {
   /**
    * 向指定支点发送消息（GatewayAPI 实现）
    * - 统一调用 Connection.send，WS 与 HTTP 的具体实现在 ConnectionManager 中注入
+   * - 发送失败或目标离线时，进入重试循环，最多等待 5 秒
    * @param pivotId - 目标支点 ID
    * @param message - 要发送的内部 Message
-   * @throws 支点离线时抛出错误
+   * @throws 超过 5 秒仍未成功时抛出 "支点离线" 错误
    */
   async routeTo(pivotId: string, message: Message): Promise<void> {
-    const conn = this.connections.get(pivotId);
-    if (conn) {
-      try {
-        conn.send(message);
-      } catch (err) {
-        // 预留的能力，后续如果需要完整确认消息是否发送
-        // 1. 可以在这里做异常检测然后发给其他支点重试
-        // 2. 可以直接根据私定协议来判断是否发送成功
-        console.error('消息发送失败!', err)
-      }
+    const local = this.localPivots.get(pivotId);
+    if (local) {
+      local.onTask(message).catch(() => {});
       return;
     }
+
+    const trySend = (): boolean => {
+      const conn = this.connections.get(pivotId);
+      if (!conn) return false;
+      try {
+        conn.send(message);
+        return true;
+      } catch (err) {
+        console.error('[Gateway] 消息发送失败，准备重试:', err);
+        return false;
+      }
+    };
+
+    if (trySend()) return;
+
+    const MAX_WAIT = 5000;
+    const INTERVAL = 500;
+    const start = Date.now();
+
+    while (Date.now() - start < MAX_WAIT) {
+      await new Promise((r) => setTimeout(r, INTERVAL));
+      if (trySend()) return;
+    }
+
     throw new Error(`支点离线: ${pivotId}`);
   }
 
@@ -169,6 +213,11 @@ export class GatewayServer implements GatewayAPI {
    * @returns 解析后的响应数据
    */
   requestTo(pivotId: string, message: Message): Promise<unknown> {
+    const local = this.localPivots.get(pivotId);
+    if (local) {
+      return Promise.resolve(local.onTask(message));
+    }
+
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         if (this.pendingRequests.has(message.traceId)) {
@@ -186,6 +235,66 @@ export class GatewayServer implements GatewayAPI {
     });
   }
 
+  // ─── 统一业务消息处理器 ───
+
+  /**
+   * 统一处理业务消息（push / pivots 等）
+   * - WS 和 HTTP /push 共用同一套业务逻辑
+   * - 返回非 undefined 时，入口层负责响应；返回 undefined 表示静默处理
+   * @param message - 内部 Message
+   * @returns 业务处理结果；undefined 表示无需响应
+   * @throws 插件未加载或路由失败时抛出异常
+   */
+  private async _handleBizMessage(message: Message): Promise<unknown> {
+    if (message.type === "pivots") {
+      const all = this.connections.getAll();
+      const pivots = Array.from(all.entries()).map(([pid, conn]) => ({
+        pivotId: pid,
+        type: conn.pivotInfo.type,
+        capabilities: conn.pivotInfo.capabilities,
+        status: conn.status,
+        isHttp: conn.isHttp,
+      }));
+      return { pivots };
+    }
+
+    let targetPivotId: string;
+
+    if (message.targetId) {
+      // 直接调用模式：targetId 已指定
+      targetPivotId = message.targetId;
+    } else if (this.pluginPivotId) {
+      // 插件 pivot 模式：通过 requestTo 调用插件 pivot 进行决策
+      const pluginMsg: Message = {
+        senderId: "gateway",
+        targetId: this.pluginPivotId,
+        type: "push",
+        payload: message.payload,
+        traceId: randomUUID(),
+        timestamp: Date.now(),
+      };
+      targetPivotId = (await this.requestTo(this.pluginPivotId, pluginMsg)) as string;
+    } else {
+      throw new Error("未配置插件 pivot");
+    }
+
+    // 同步模式：等待目标支点响应并直接返回（如工具调用）
+    if (message.payload?.sync) {
+      const response = await this.requestTo(targetPivotId, { ...message, targetId: targetPivotId });
+      if (message.payload?.taskId) {
+        this.router.setRoute(message.payload.taskId, targetPivotId);
+      }
+      return response;
+    }
+
+    await this.routeTo(targetPivotId, { ...message, targetId: targetPivotId });
+    if (message.payload?.taskId) {
+      this.router.setRoute(message.payload.taskId, targetPivotId);
+    }
+    return { status: "accepted", taskId: message.payload?.taskId };
+
+  }
+
   // ─── WebSocket 处理 ───
 
   /**
@@ -201,16 +310,15 @@ export class GatewayServer implements GatewayAPI {
         try {
           const message = JSON.parse(raw.toString()) as Message;
 
-          // 心跳消息
+          // 心跳消息（ws专属）
           if (message.type === "heartbeat") {
             if (pivotId) {
               this.connections.updateHeartbeat(pivotId);
-              this.plugin?.onPivotUpdate(pivotId, this.connections.get(pivotId)!.status);
             }
             return;
           }
 
-          // 注册消息
+          // 注册消息（ws版本的专门处理）
           if (message.type === "register") {
             const info = message.payload as unknown as PivotInfo & { pivotId?: string };
             pivotId = info.pivotId ?? message.senderId;
@@ -229,11 +337,6 @@ export class GatewayServer implements GatewayAPI {
               priceTable: info.priceTable ?? cached?.pivotInfo.priceTable,
             };
 
-            const accepted = this.plugin?.onPivotConnect(pivotInfo) ?? true;
-            if (!accepted) {
-              socket.close(1008, "被插件拒绝");
-              return;
-            }
             this.connections.addWs(pivotId, pivotInfo, socket);
             return;
           }
@@ -251,20 +354,22 @@ export class GatewayServer implements GatewayAPI {
             return;
           }
 
-          // 普通上行消息（Agent / User / Gateway 等通过 WS 提交的任务）
-          if (message.type === "push") {
-            if (!this.plugin) return;
-            try {
-              const targetPivotId = message.targetId ?? await this.plugin.onTaskSubmit(message);
-              await this.routeTo(targetPivotId, { ...message, targetId: targetPivotId });
-              if (message.payload?.taskId) {
-                this.router.setRoute(message.payload.taskId, targetPivotId);
-                this.plugin.onTaskAssigned?.(message.payload.taskId, targetPivotId);
-              }
-            } catch {
-              // ignore routing error
+          // 统一业务消息处理（push / pivots 等）
+          try {
+            const result = await this._handleBizMessage(message);
+            if (result !== undefined) {
+              const response: Message = {
+                senderId: "gateway",
+                targetId: message.senderId,
+                type: message.type,
+                payload: { data: result },
+                traceId: message.traceId,
+                timestamp: Date.now(),
+              };
+              await this.routeTo(message.senderId, response);
             }
-            return;
+          } catch {
+            // ignore routing error
           }
         } catch {
           // ignore invalid message
@@ -295,7 +400,7 @@ export class GatewayServer implements GatewayAPI {
    * - POST /pipe?taskId=...&protocol=...      : 生产者回传管道数据
    */
   private _setupHttpRoutes(): void {
-    // 注册（长轮询等待消息）
+    // 注册（长轮询等待消息，http版本专属处理）
     this.fastify.post<{
       Body: Partial<PivotInfo> & { pivotId?: string };
     }>("/register", async (request, reply) => {
@@ -319,10 +424,6 @@ export class GatewayServer implements GatewayAPI {
         priceTable: body.priceTable ?? cached?.pivotInfo.priceTable,
       };
 
-      const accepted = this.plugin?.onPivotConnect(pivotInfo) ?? true;
-      if (!accepted) {
-        return send({ error: "被插件拒绝注册" }, 403);
-      }
       const conn = this.connections.addHttp(pivotId, pivotInfo, reply);
       conn.send = send;
 
@@ -361,18 +462,27 @@ export class GatewayServer implements GatewayAPI {
       if (!message?.senderId || !message?.type) {
         return reply.code(400).send({ error: "消息格式无效" });
       }
-      if (!this.plugin) {
-        return reply.code(503).send({ error: "未加载插件" });
+
+      // 检查是否是 pending request 的响应（支持 pivot 回传结果）
+      const pendingReq = this.pendingRequests.get(message.traceId);
+      if (pendingReq) {
+        clearTimeout(pendingReq.timer);
+        this.pendingRequests.delete(message.traceId);
+        if (message.payload?.error) {
+          pendingReq.reject(new Error(String(message.payload.error)));
+        } else {
+          pendingReq.resolve(message.payload?.data ?? message.payload);
+        }
+        return reply.code(200).send({ status: "ok" });
+      }
+
+      if (!this.pluginPivotId) {
+        return reply.code(503).send({ error: "未配置插件 pivot" });
       }
 
       try {
-        const pivotId = await this.plugin.onTaskSubmit(message);
-        await this.routeTo(pivotId, { ...message, targetId: pivotId });
-        if (message.payload?.taskId) {
-          this.router.setRoute(message.payload.taskId, pivotId);
-          this.plugin.onTaskAssigned?.(message.payload.taskId, pivotId);
-        }
-        return reply.code(202).send({ status: "accepted", taskId: message.payload?.taskId });
+        const result = await this._handleBizMessage(message);
+        return reply.code(202).send(result);
       } catch (err) {
         return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
       }
@@ -441,6 +551,18 @@ export class GatewayServer implements GatewayAPI {
 
       // 流结束后返回成功
       return { status: "delivered" };
+    });
+
+    // 查询所有连接信息
+    this.fastify.get("/pivots", async (_request, reply) => {
+      const result = await this._handleBizMessage({
+        senderId: "gateway",
+        type: "pivots",
+        payload: {},
+        traceId: randomUUID(),
+        timestamp: Date.now(),
+      });
+      return reply.code(200).send(result);
     });
 
   }
