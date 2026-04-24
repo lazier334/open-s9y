@@ -121,7 +121,7 @@ export class GatewayServer implements GatewayAPI {
    * @returns 实际监听地址
    */
   async listen(port?: number): Promise<string> {
-    const address = await this.fastify.listen({ port: port ?? 3000 });
+    const address = await this.fastify.listen({ port: port ?? 3000, host: '0.0.0.0' });
     return address;
   }
 
