@@ -307,8 +307,9 @@ export class GatewayServer implements GatewayAPI {
       let pivotId: string | undefined;
 
       socket.on("message", async (raw: Buffer) => {
+        let message = {} as Message;
         try {
-          const message = JSON.parse(raw.toString()) as Message;
+          message = JSON.parse(raw.toString()) as Message;
 
           // 心跳消息（ws专属）
           if (message.type === "heartbeat") {
@@ -355,7 +356,6 @@ export class GatewayServer implements GatewayAPI {
           }
 
           // 统一业务消息处理（push / pivots 等）
-          try {
             const result = await this._handleBizMessage(message);
             if (result !== undefined) {
               const response: Message = {
@@ -368,11 +368,21 @@ export class GatewayServer implements GatewayAPI {
               };
               await this.routeTo(message.senderId, response);
             }
-          } catch {
-            // ignore routing error
+        } catch (err) {
+          try{
+            const errorResponse: Message = {
+              senderId: "gateway",
+              targetId: message.senderId,
+              type: message.type,
+              payload: { error: err instanceof Error ? err.message : String(err) },
+              traceId: message.traceId,
+              timestamp: Date.now(),
+            };
+            await this.routeTo(message.senderId, errorResponse);
+          } catch (err) {
+          // 捕获 JSON.parse 失败、routeTo 发送失败（如发送方已断开）
+          console.error("[Gateway] WS 消息处理异常:", err);
           }
-        } catch {
-          // ignore invalid message
         }
       });
 
