@@ -9,7 +9,7 @@ export type PivotType = "user" | "agent" | "system" | "gateway" | "tool" | "othe
 export interface MessagePayload {
     taskId?: string;
     data?: unknown;
-    capabilities?: Record<string, unknown> | string;
+    capabilities?: string[];
     error?: string;
     status?: string;
     /** 本次消息消耗的价格（支持动态定价场景） */
@@ -46,9 +46,9 @@ export interface Message {
 export interface PivotInfo {
     pivotId: string;
     type: PivotType;
-    /** 支点自定义名称（注册时可指定，可用于路由匹配） */
+    /** 支点能力标签（注册时声明，可用于路由匹配和筛选） */
     name?: string;
-    capabilities?: Record<string, unknown>;
+    capabilities?: string[];
     /** 该支点的价格表标识（支持动态定价，仅做标记用） */
     priceTable?: string;
 }
@@ -57,6 +57,14 @@ export interface Status {
     connectedAt: number;
     lastHeartbeatAt: number;
     load?: number;
+}
+
+/**
+ * /pivots 接口的 Query 参数类型
+ */
+export interface PivotsQuery {
+    /** 按能力标签筛选（AND 逻辑，逗号分隔），缺省返回全部 */
+    capabilities?: string;
 }
 
 /**

@@ -90,13 +90,13 @@ export class GatewayServer implements GatewayAPI {
     pivotId: string;
     type: string;
     name?: string;
-    capabilities?: Record<string, unknown>;
+    capabilities?: string[];
   }> {
     const result: Array<{
       pivotId: string;
       type: string;
       name?: string;
-      capabilities?: Record<string, unknown>;
+      capabilities?: string[];
     }> = [];
     for (const [pid, conn] of this.connections.getAll()) {
       result.push({
@@ -215,19 +215,24 @@ export class GatewayServer implements GatewayAPI {
    */
   async handleBizMessage(message: Message): Promise<unknown> {
     if (message.type === "pivots") {
+      const required = message.payload?.capabilities ?? [];
       const all = this.connections.getAll();
-      const remote = Array.from(all.entries()).map(([pid, conn]) => ({
-        pivotId: pid,
-        type: conn.pivotInfo.type,
-        name: conn.pivotInfo.name,
-        capabilities: conn.pivotInfo.capabilities,
-        adapterType: conn.socket ? "ws" as const : "http" as const,
-        status: conn.status,
-      }));
-      const local = this.connections.getLocalPivotsInfo().map((p) => ({
-        ...p,
-        adapterType: "fun" as const,
-      }));
+      const remote = Array.from(all.entries())
+        .filter(([_, conn]) => required.length === 0 || required.every((c: string) => conn.pivotInfo.capabilities?.includes(c)))
+        .map(([pid, conn]) => ({
+          pivotId: pid,
+          type: conn.pivotInfo.type,
+          name: conn.pivotInfo.name,
+          capabilities: conn.pivotInfo.capabilities,
+          adapterType: conn.socket ? "ws" as const : "http" as const,
+          status: conn.status,
+        }));
+      const local = this.connections.getLocalPivotsInfo()
+        .filter((p) => required.length === 0 || required.every((c: string) => p.capabilities?.includes(c)))
+        .map((p) => ({
+          ...p,
+          adapterType: "fun" as const,
+        }));
       return { pivots: [...remote, ...local] };
     }
 

@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import type { Message, PivotInfo, PipeQuery } from "../../sdk/type.ts";
+import type { Message, PivotInfo, PipeQuery, PivotsQuery } from "../../sdk/type.ts";
 import type { GatewayServer } from "../server.ts";
 import { randomUUID } from "node:crypto";
 
@@ -184,16 +184,28 @@ export class HttpAdapter {
     );
 
     // ── GET /pivots ──
-    fastify.get("/pivots", async (_request, reply) => {
+    fastify.get<{ Querystring: PivotsQuery }>("/pivots", async (request, reply) => {
+      const capsFilter = request.query.capabilities
+        ? request.query.capabilities.split(",").map((s) => s.trim()).filter(Boolean)
+        : [];
       const result = await this.server.handleBizMessage({
         senderId: "gateway",
         type: "pivots",
-        payload: {},
+        payload: { capabilities: capsFilter },
         traceId: randomUUID(),
         timestamp: Date.now(),
       });
       return reply.code(200).send(result);
     });
+
+    // ── GET /shutdown ──（仅 ALLOW_SHUTDOWN 环境变量为真时注册）
+    if (process.env.ALLOW_SHUTDOWN == 'true') {
+      fastify.get("/shutdown", async (_request, reply) => {
+        reply.code(202).send({ status: "正在关机中" });
+        console.log('系统正在关机中...');
+        this.server.close().catch(() => process.exit(0));
+      });
+    }
   }
 
   // ─── 管道中继辅助 ───

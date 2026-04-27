@@ -3,14 +3,10 @@ import type { Message } from "../sdk/type.ts";
 import type { GatewayServer } from "../src/server.ts";
 
 interface UpstreamConfig {
-  /** 上游网关地址 */
   url: string;
-  /** 是否启用此连接 */
   enabled: boolean;
-  /** 在此上游网关中的 pivotId */
   pivotId: string;
-  /** 该上游支持的能力 */
-  capabilities?: Record<string, unknown>;
+  capabilities?: string[];
 }
 
 /**
@@ -31,11 +27,11 @@ export class GatewayProxyPivot extends BasePivot {
    */
   static readonly CONFIG: UpstreamConfig[] = [
     // 示例配置（取消注释并修改即可启用）
-    // { url: "http://localhost:3010", enabled: process.env.GATEWAY_PORT != "3010", pivotId: "proxy-to-a", capabilities: { calc: true } },
-    { url: "http://localhost:3000", enabled: false, pivotId: "proxy-to-a", capabilities: { calc: true } },
+    // { url: "http://localhost:3010", enabled: process.env.GATEWAY_PORT != "3010", pivotId: "proxy-to-a", capabilities: ["calc"] },
+    { url: "http://localhost:3000", enabled: false, pivotId: "proxy-to-a", capabilities: ["calc"] },
   ];
 
-  constructor(options: { pivotId: string; capabilities: Record<string, unknown> }) {
+  constructor(options: { pivotId: string; capabilities: string[] }) {
     super({
       gatewayUrl: "local://internal",
       pivotId: options.pivotId,
@@ -95,10 +91,10 @@ export class GatewayProxyPivot extends BasePivot {
 export function createPivot(_server: GatewayServer): GatewayProxyPivot {
   const proxyCaps = GatewayProxyPivot.CONFIG
     .filter((c) => c.enabled)
-    .reduce((acc, c) => ({ ...acc, ...c.capabilities }), {});
+    .flatMap((c) => c.capabilities ?? []);
 
   return new GatewayProxyPivot({
     pivotId: "gateway-proxy",
-    capabilities: Object.keys(proxyCaps).length > 0 ? proxyCaps : { gatewayProxy: true },
+    capabilities: proxyCaps.length > 0 ? [...new Set(proxyCaps)] : ["gatewayProxy"],
   });
 }

@@ -20,7 +20,7 @@ export class RouterPivot extends BasePivot {
   constructor(options: {
     pivotId: string;
     type: "system";
-    capabilities?: Record<string, unknown>;
+    capabilities?: string[];
     gateway: GatewayServer;
   }) {
     super({
@@ -45,15 +45,13 @@ export class RouterPivot extends BasePivot {
    * - 选择 assignedCount 最小的支点
    */
   async onTask(message: Message): Promise<string> {
-    const rawCap = message.payload?.capabilities;
-    const capability = typeof rawCap === "string" ? rawCap : "default";
-
+    const requiredCaps = message.payload?.capabilities ?? [];
     const all = this.gateway.getAllPivots();
     const candidates: PivotRecord[] = [];
 
     for (const pivot of all) {
-      const caps = pivot.capabilities ?? {};
-      if (capability === "default" || caps[capability] === true || caps.capability === capability) {
+      const caps = pivot.capabilities ?? [];
+      if (requiredCaps.length === 0 || requiredCaps.some((c) => caps.includes(c))) {
         candidates.push({
           pivotId: pivot.pivotId,
           assignedCount: this.assignedCounts.get(pivot.pivotId) ?? 0,
@@ -62,7 +60,7 @@ export class RouterPivot extends BasePivot {
     }
 
     if (candidates.length === 0) {
-      throw new Error(`没有可用支点支持该能力: ${capability}`);
+      throw new Error(`没有可用支点支持该能力: ${requiredCaps.join(",")}`);
     }
 
     // 同能力下有同名匹配的优先，否则退化到纯能力匹配
@@ -88,7 +86,7 @@ export function createPivot(server: GatewayServer): RouterPivot {
   return new RouterPivot({
     pivotId: pluginPivotId,
     type: "system",
-    capabilities: { routing: true },
+    capabilities: ["routing"],
     gateway: server,
   });
 }

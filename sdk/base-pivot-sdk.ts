@@ -7,7 +7,7 @@ export interface BasePivotOptions {
     type: PivotType;
     /** 支点自定义名称（可用于路由匹配） */
     name?: string;
-    capabilities?: Record<string, unknown>;
+    capabilities?: string[];
     /** 该支点的价格表标识（支持动态定价，仅做标记用） */
     priceTable?: string;
     heartbeatInterval?: number;

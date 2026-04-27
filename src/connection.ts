@@ -107,8 +107,8 @@ export class ConnectionManager {
   }
 
   /** 获取所有本地支点的基本信息 */
-  getLocalPivotsInfo(): Array<{ pivotId: string; type: string; name?: string; capabilities?: Record<string, unknown> }> {
-    const result: Array<{ pivotId: string; type: string; name?: string; capabilities?: Record<string, unknown> }> = [];
+  getLocalPivotsInfo(): Array<{ pivotId: string; type: string; name?: string; capabilities?: string[] }> {
+    const result: Array<{ pivotId: string; type: string; name?: string; capabilities?: string[] }> = [];
     for (const [pid, pivot] of this.localPivots) {
       result.push({
         pivotId: pid,

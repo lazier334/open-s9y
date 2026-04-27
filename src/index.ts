@@ -1,3 +1,4 @@
+import "../lib/logger.ts";
 import { GatewayServer } from "./server.ts";
 
 async function main() {
