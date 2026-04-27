@@ -1,4 +1,3 @@
-import { Buffer } from "node:buffer";
 import { WebSocket } from "ws";
 import type { Message, PivotType } from "./type.ts";
 
@@ -6,6 +5,8 @@ export interface BasePivotOptions {
     gatewayUrl: string;
     pivotId: string;
     type: PivotType;
+    /** 支点自定义名称（可用于路由匹配） */
+    name?: string;
     capabilities?: Record<string, unknown>;
     /** 该支点的价格表标识（支持动态定价，仅做标记用） */
     priceTable?: string;
@@ -135,6 +136,7 @@ export abstract class BasePivot {
             type: "register",
             payload: {
                 pivotId: this.options.pivotId,
+                name: this.options.name,
                 type: this.options.type,
                 capabilities: this.options.capabilities,
                 priceTable: this.options.priceTable,
@@ -188,26 +190,6 @@ export abstract class BasePivot {
         } catch {
             // ignore invalid message
         }
-    }
-
-    private _wsRequest(type: string, taskId: string): Promise<unknown> {
-        return new Promise((resolve, reject) => {
-            const traceId = crypto.randomUUID();
-            this.pendingRequests.set(traceId, { resolve, reject });
-            const msg: Message = {
-                senderId: this.options.pivotId,
-                type: type as Message["type"],
-                payload: { taskId },
-                traceId,
-                timestamp: Date.now(),
-            };
-            this.ws?.send(JSON.stringify(msg), (err) => {
-                if (err) {
-                    this.pendingRequests.delete(traceId);
-                    reject(err);
-                }
-            });
-        });
     }
 
     // ─── HTTP 内部方法 ───
@@ -287,33 +269,27 @@ export abstract class BasePivot {
             }
 
             if (protocol === "result") {
-                try {
-                    const data = await Promise.resolve(this.onResultRequest?.(taskId));
-                    await this._postPipe("result", taskId, { data });
-                } catch (err: unknown) {
-                    await this._postPipe("result", taskId, { error: err instanceof Error ? err.message : String(err) });
-                }
-                return;
+                return await this._handlePipeProtocol("result", taskId, () => this.onResultRequest?.(taskId));
             }
 
             if (protocol === "status") {
-                try {
-                    const data = await Promise.resolve(this.onStatusRequest?.(taskId));
-                    await this._postPipe("status", taskId, { data });
-                } catch (err: unknown) {
-                    await this._postPipe("status", taskId, { error: err instanceof Error ? err.message : String(err) });
-                }
-                return;
+                return await this._handlePipeProtocol("status", taskId, () => this.onStatusRequest?.(taskId));
             }
 
-            // 自定义协议：交给子类可选的 onPipeRequest 处理
-            try {
-                const data = await Promise.resolve(this.onPipeRequest?.(protocol, taskId));
-                await this._postPipe(protocol, taskId, { data });
-            } catch (err) {
-                await this._postPipe(protocol, taskId, { error: err instanceof Error ? err.message : String(err) });
-            }
-            return;
+            return await this._handlePipeProtocol(protocol, taskId, () => this.onPipeRequest?.(protocol, taskId));
+        }
+    }
+
+    private async _handlePipeProtocol(
+        protocol: string,
+        taskId: string,
+        handler: () => unknown | Promise<unknown>
+    ): Promise<void> {
+        try {
+            const data = await Promise.resolve(handler());
+            await this._postPipe(protocol, taskId, { data });
+        } catch (err: unknown) {
+            await this._postPipe(protocol, taskId, { error: err instanceof Error ? err.message : String(err) });
         }
     }
 
@@ -328,19 +304,6 @@ export abstract class BasePivot {
         }
     }
 
-    private async _postPipeStream(protocol: string, taskId: string, body: { data?: unknown; done?: boolean; error?: string }): Promise<void> {
-        const res = await fetch(`${this.options.gatewayUrl}/pipe?taskId=${taskId}&protocol=${protocol}`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/octet-stream",
-                "X-Pipe-Mode": "stream",
-            },
-            body: JSON.stringify(body),
-        });
-        if (!res.ok) {
-            console.error(`[BasePivot] taskId=${taskId}&protocol=${protocol} 流式回传失败:`, res.status);
-        }
-    }
     private async _postPipeBinaryStream(
         protocol: string,
         taskId: string,

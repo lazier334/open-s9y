@@ -1,18 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { randomUUID } from "node:crypto";
 import type { Message, PivotInfo, PipeQuery } from "../../sdk/type.ts";
 import type { GatewayServer } from "../server.ts";
-
-type PendingRequest = {
-  resolve: (value: unknown) => void;
-  reject: (reason: unknown) => void;
-  timer: NodeJS.Timeout;
-};
-
-type PipeWaiter = {
-  reply: FastifyReply;
-  timer: NodeJS.Timeout;
-};
+import { randomUUID } from "node:crypto";
 
 /**
  * HTTP 协议适配器
@@ -44,6 +33,7 @@ export class HttpAdapter {
         const pivotInfo: PivotInfo = {
           pivotId,
           type: body.type ?? cached?.pivotInfo.type ?? "other",
+          name: body.name ?? cached?.pivotInfo.name,
           capabilities: body.capabilities ?? cached?.pivotInfo.capabilities,
           priceTable: body.priceTable ?? cached?.pivotInfo.priceTable,
         };
@@ -129,7 +119,7 @@ export class HttpAdapter {
         if (!targetPivotId) {
           return reply.code(404).send({ error: "目标支点未找到" });
         }
-        if (!this.server.connections.isOnline(targetPivotId)) {
+        if (!this.server.connections.has(targetPivotId)) {
           return reply.code(503).send({ error: "支点离线" });
         }
 
@@ -148,9 +138,15 @@ export class HttpAdapter {
           await this.server.routeTo(targetPivotId, msg);
           reply.hijack();
         } catch (err) {
-          this._resolvePipeWaiter(protocol, taskId, {
-            error: err instanceof Error ? err.message : String(err),
-          });
+          const key = this._pipeWaiterKey(protocol, taskId);
+          const waiter = this.server.pipeWaiters.get(key);
+          if (waiter) {
+            clearTimeout(waiter.timer);
+            this.server.pipeWaiters.delete(key);
+            if (!reply.sent) {
+              reply.code(502).send({ error: err instanceof Error ? err.message : String(err) });
+            }
+          }
         }
       }
     );

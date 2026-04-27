@@ -1,7 +1,7 @@
-import type { WebSocket } from "ws";
-import type { FastifyReply } from "fastify";
 import type { Message, PivotInfo, Status } from "../sdk/type.ts";
 import type { BasePivot } from "../sdk/base-pivot-sdk.ts";
+import type { FastifyReply } from "fastify";
+import type { WebSocket } from "ws";
 
 export interface Connection {
   socket?: WebSocket;
@@ -10,8 +10,6 @@ export interface Connection {
   status: Status;
   heartbeatTimer?: NodeJS.Timeout;
   timeoutTimer?: NodeJS.Timeout;
-  /** HTTP 长轮询模式下无 socket */
-  isHttp?: boolean;
   /** 统一发送消息接口，WS 与 HTTP 各自实现 */
   send: (message: Message, code?: number) => void;
 }
@@ -109,12 +107,13 @@ export class ConnectionManager {
   }
 
   /** 获取所有本地支点的基本信息 */
-  getLocalPivotsInfo(): Array<{ pivotId: string; type: string; capabilities?: Record<string, unknown> }> {
-    const result: Array<{ pivotId: string; type: string; capabilities?: Record<string, unknown> }> = [];
+  getLocalPivotsInfo(): Array<{ pivotId: string; type: string; name?: string; capabilities?: Record<string, unknown> }> {
+    const result: Array<{ pivotId: string; type: string; name?: string; capabilities?: Record<string, unknown> }> = [];
     for (const [pid, pivot] of this.localPivots) {
       result.push({
         pivotId: pid,
         type: pivot.options.type ?? "other",
+        name: pivot.options.name,
         capabilities: pivot.options.capabilities,
       });
     }
@@ -134,14 +133,10 @@ export class ConnectionManager {
 
   /** 添加新的支点 WS 连接 */
   addWs(pivotId: string, pivotInfo: PivotInfo, socket: WebSocket): Connection {
-    const now = Date.now();
-    const cached = this.pivotCache.get(pivotId);
     const connection: Connection = {
       socket,
       pivotInfo,
-      status: cached
-        ? { ...cached.status, lastHeartbeatAt: now }
-        : { connectedAt: now, lastHeartbeatAt: now },
+      status: this._restoreStatus(pivotId),
       send: (message: Message) => {
         if (socket.readyState !== 1) {
           throw new Error("WebSocket 未连接");
@@ -159,15 +154,10 @@ export class ConnectionManager {
 
   /** 添加新的 HTTP 长轮询连接 */
   addHttp(pivotId: string, pivotInfo: PivotInfo, reply: FastifyReply): Connection {
-    const now = Date.now();
-    const cached = this.pivotCache.get(pivotId);
     const connection: Connection = {
       reply,
       pivotInfo,
-      status: cached
-        ? { ...cached.status, lastHeartbeatAt: now }
-        : { connectedAt: now, lastHeartbeatAt: now },
-      isHttp: true,
+      status: this._restoreStatus(pivotId),
       send: () => {
         throw new Error("HTTP 连接尚未就绪");
       },
@@ -189,36 +179,25 @@ export class ConnectionManager {
     return this.connections.has(pivotId);
   }
 
-  /** 检查指定支点是否在线 */
-  isOnline(pivotId: string): boolean {
-    return this.connections.has(pivotId);
-  }
-
   /** 移除 WS 连接 */
   removeWs(pivotId: string): boolean {
     const connection = this.connections.get(pivotId);
-    if (!connection || connection.isHttp) return false;
+    if (!connection || connection.reply) return false;
 
-    this._cachePivot(pivotId, connection);
-    this._clearTimers(connection);
-    this.connections.delete(pivotId);
-    this.removePivotRoutes(pivotId);
     console.info('WS 支点移除', pivotId);
-    this.handlers.onDisconnect?.(pivotId);
+    this._disconnect(pivotId, connection);
     return true;
   }
 
   /** 移除 HTTP 连接（长轮询断开） */
   removeHttp(pivotId: string, cache = true): boolean {
     const connection = this.connections.get(pivotId);
-    if (!connection || !connection.isHttp) return false;
+    if (!connection || !connection.reply) return false;
 
-    if (cache) {
-      this._cachePivot(pivotId, connection);
-    }
+    console.info('HTTP 支点移除', pivotId);
+    if (cache) this._cachePivot(pivotId, connection);
     this.connections.delete(pivotId);
     this.removePivotRoutes(pivotId);
-    console.info('HTTP 支点移除', pivotId);
     this.handlers.onDisconnect?.(pivotId);
     return true;
   }
@@ -229,7 +208,7 @@ export class ConnectionManager {
     if (!connection) return false;
 
     connection.status.lastHeartbeatAt = Date.now();
-    if (!connection.isHttp) {
+    if (connection.socket) {
       this._clearTimers(connection);
       this._startTimers(pivotId, connection);
     }
@@ -256,6 +235,24 @@ export class ConnectionManager {
     return this.pivotCache.delete(pivotId);
   }
 
+  /** 恢复缓存中的连接状态，或返回全新的初始状态 */
+  private _restoreStatus(pivotId: string): Status {
+    const now = Date.now();
+    const cached = this.pivotCache.get(pivotId);
+    return cached
+      ? { ...cached.status, lastHeartbeatAt: now }
+      : { connectedAt: now, lastHeartbeatAt: now };
+  }
+
+  /** 连接断开清理：缓存 + 清理定时器 + 删除记录 + 清理路由 + 通知 */
+  private _disconnect(pivotId: string, connection: Connection): void {
+    this._cachePivot(pivotId, connection);
+    this._clearTimers(connection);
+    this.connections.delete(pivotId);
+    this.removePivotRoutes(pivotId);
+    this.handlers.onDisconnect?.(pivotId);
+  }
+
   /** 为指定连接启动心跳和超时定时器（仅 WS） */
   private _startTimers(pivotId: string, connection: Connection): void {
     connection.heartbeatTimer = setInterval(() => {
@@ -267,10 +264,7 @@ export class ConnectionManager {
     connection.timeoutTimer = setTimeout(() => {
       this.handlers.onHeartbeatTimeout?.(pivotId);
       this._destroy(connection);
-      this._cachePivot(pivotId, connection);
-      this.connections.delete(pivotId);
-      this.removePivotRoutes(pivotId);
-      this.handlers.onDisconnect?.(pivotId);
+      this._disconnect(pivotId, connection);
     }, this.pivotTimeout);
   }
 

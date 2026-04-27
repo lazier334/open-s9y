@@ -4,8 +4,6 @@ import type { GatewayServer } from "../src/server.ts";
 
 interface PivotRecord {
   pivotId: string;
-  type: string;
-  capabilities: Record<string, unknown>;
   assignedCount: number;
 }
 
@@ -58,8 +56,6 @@ export class RouterPivot extends BasePivot {
       if (capability === "default" || caps[capability] === true || caps.capability === capability) {
         candidates.push({
           pivotId: pivot.pivotId,
-          type: pivot.type ?? "other",
-          capabilities: caps,
           assignedCount: this.assignedCounts.get(pivot.pivotId) ?? 0,
         });
       }
@@ -67,6 +63,17 @@ export class RouterPivot extends BasePivot {
 
     if (candidates.length === 0) {
       throw new Error(`没有可用支点支持该能力: ${capability}`);
+    }
+
+    // 同能力下有同名匹配的优先，否则退化到纯能力匹配
+    if (message.targetName) {
+      const nameMap = new Map(all.map((p) => [p.pivotId, p.name]));
+      const byName = candidates.filter((c) => nameMap.get(c.pivotId) === message.targetName);
+      if (byName.length > 0) {
+        const selected = byName.sort((a, b) => a.assignedCount - b.assignedCount)[0];
+        this.assignedCounts.set(selected.pivotId, selected.assignedCount + 1);
+        return selected.pivotId;
+      }
     }
 
     const selected = candidates.sort((a, b) => a.assignedCount - b.assignedCount)[0];

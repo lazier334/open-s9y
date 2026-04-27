@@ -1,8 +1,8 @@
-import { readdirSync } from "node:fs";
+import type { BasePivot } from "../../sdk/base-pivot-sdk.ts";
+import type { GatewayServer } from "../server.ts";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { GatewayServer } from "../server.ts";
-import type { BasePivot } from "../../sdk/base-pivot-sdk.ts";
+import { readdirSync } from "node:fs";
 
 export interface PivotFactory {
   (server: GatewayServer): BasePivot;

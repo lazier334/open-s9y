@@ -1,11 +1,10 @@
-import Fastify from "fastify";
-import type { FastifyRequest } from "fastify";
-import { WebSocketServer } from "ws";
-import type { FastifyInstance } from "fastify";
-import type { Server } from "node:http";
-import { randomUUID } from "node:crypto";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import type { Message, GatewayAPI } from "../sdk/type.ts";
 import type { BasePivot } from "../sdk/base-pivot-sdk.ts";
+import type { Server } from "node:http";
+import Fastify from "fastify";
+import { WebSocketServer } from "ws";
+import { randomUUID } from "node:crypto";
 import { ConnectionManager } from "./connection.ts";
 import { WsAdapter } from "./adapter/ws-adapter.ts";
 import { HttpAdapter } from "./adapter/http-adapter.ts";
@@ -18,7 +17,7 @@ type PendingRequest = {
 };
 
 type PipeWaiter = {
-  reply: import("fastify").FastifyReply;
+  reply: FastifyReply;
   timer: NodeJS.Timeout;
 };
 
@@ -90,17 +89,20 @@ export class GatewayServer implements GatewayAPI {
   getAllPivots(): Array<{
     pivotId: string;
     type: string;
+    name?: string;
     capabilities?: Record<string, unknown>;
   }> {
     const result: Array<{
       pivotId: string;
       type: string;
+      name?: string;
       capabilities?: Record<string, unknown>;
     }> = [];
     for (const [pid, conn] of this.connections.getAll()) {
       result.push({
         pivotId: pid,
         type: conn.pivotInfo.type ?? "other",
+        name: conn.pivotInfo.name,
         capabilities: conn.pivotInfo.capabilities,
       });
     }
@@ -117,7 +119,7 @@ export class GatewayServer implements GatewayAPI {
     return address;
   }
 
-  /** 优雅关闭服务器 */
+  /** 关闭服务器 */
   async close(): Promise<void> {
     for (const waiter of this.pipeWaiters.values()) {
       clearTimeout(waiter.timer);
@@ -144,7 +146,7 @@ export class GatewayServer implements GatewayAPI {
   async routeTo(pivotId: string, message: Message): Promise<void> {
     const local = this.connections.getLocal(pivotId);
     if (local) {
-      local.onTask(message).catch(() => {});
+      local.onTask(message).catch(() => { });
       return;
     }
 
@@ -155,7 +157,7 @@ export class GatewayServer implements GatewayAPI {
         conn.send(message);
         return true;
       } catch (err) {
-        console.error("[Gateway] 消息发送失败，准备重试:", err);
+        console.error("消息发送失败，准备重试:", err);
         return false;
       }
     };
@@ -217,37 +219,19 @@ export class GatewayServer implements GatewayAPI {
       const remote = Array.from(all.entries()).map(([pid, conn]) => ({
         pivotId: pid,
         type: conn.pivotInfo.type,
+        name: conn.pivotInfo.name,
         capabilities: conn.pivotInfo.capabilities,
+        adapterType: conn.socket ? "ws" as const : "http" as const,
         status: conn.status,
-        isHttp: conn.isHttp,
       }));
       const local = this.connections.getLocalPivotsInfo().map((p) => ({
         ...p,
-        isLocal: true,
+        adapterType: "fun" as const,
       }));
       return { pivots: [...remote, ...local] };
     }
 
-    let targetPivotId: string;
-
-    if (message.targetId) {
-      targetPivotId = message.targetId;
-    } else if (this.pluginPivotId) {
-      const pluginMsg: Message = {
-        senderId: "gateway",
-        targetId: this.pluginPivotId,
-        type: "push",
-        payload: message.payload,
-        traceId: randomUUID(),
-        timestamp: Date.now(),
-      };
-      targetPivotId = (await this.requestTo(
-        this.pluginPivotId,
-        pluginMsg
-      )) as string;
-    } else {
-      throw new Error("未配置插件 pivot");
-    }
+    const targetPivotId = await this._resolveTargetPivotId(message);
 
     if (message.payload?.sync) {
       const response = await this.requestTo(targetPivotId, {
@@ -265,5 +249,22 @@ export class GatewayServer implements GatewayAPI {
       this.connections.setRoute(message.payload.taskId, targetPivotId);
     }
     return { status: "accepted", taskId: message.payload?.taskId };
+  }
+
+  /** 解析目标支点 ID：有 targetId 直接使用，否则请求插件 pivot 路由 */
+  private async _resolveTargetPivotId(message: Message): Promise<string> {
+    if (message.targetId) return message.targetId;
+
+    if (!this.pluginPivotId) throw new Error("未配置插件 pivot");
+
+    const pluginMsg: Message = {
+      senderId: "gateway",
+      targetId: this.pluginPivotId,
+      type: "push",
+      payload: message.payload,
+      traceId: randomUUID(),
+      timestamp: Date.now(),
+    };
+    return (await this.requestTo(this.pluginPivotId, pluginMsg)) as string;
   }
 }

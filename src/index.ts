@@ -13,14 +13,9 @@ async function main() {
   const address = await server.listen(port);
   console.log(`网关服务正在监听: ${address}`);
 
-  const shutdown = async (signal: string) => {
-    console.log(`\n接收到 ${signal}，正在关闭...`);
-    await server.close();
-    process.exit(0);
-  };
-
-  process.on("SIGINT", () => shutdown("SIGINT"));
-  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  const shutdown = () => server.close().then(() => process.exit(0));
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
 }
 
 main().catch((err) => {

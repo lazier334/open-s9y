@@ -1,5 +1,5 @@
-import type { WebSocketServer, WebSocket } from "ws";
 import type { Message, PivotInfo } from "../../sdk/type.ts";
+import type { WebSocketServer, WebSocket } from "ws";
 import type { GatewayServer } from "../server.ts";
 
 /**
@@ -44,6 +44,7 @@ export class WsAdapter {
             const pivotInfo: PivotInfo = {
               pivotId,
               type: info.type ?? cached?.pivotInfo.type ?? "other",
+              name: info.name ?? cached?.pivotInfo.name,
               capabilities: info.capabilities ?? cached?.pivotInfo.capabilities,
               priceTable: info.priceTable ?? cached?.pivotInfo.priceTable,
             };

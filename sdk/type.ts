@@ -2,7 +2,7 @@
  * 统一消息格式定义
  * 所有传输层协议（HTTP / WebSocket）最终都转换为 Message 在内部流转
  */
-export type MessageType = "push" | "pipe" | "progress" | "result" | "status" | "register" | "heartbeat" | "pivots";
+export type MessageType = "push" | "pipe" | "register" | "heartbeat" | "pivots";
 
 export type PivotType = "user" | "agent" | "system" | "gateway" | "tool" | "other";
 
@@ -16,6 +16,7 @@ export interface MessagePayload {
     cost?: string;
     // register 消息额外字段
     pivotId?: string;
+    name?: string;
     type?: PivotType;
     /** pipe 协议类型（progress / result / status / 自定义） */
     protocol?: string;
@@ -28,8 +29,10 @@ export interface MessagePayload {
 export interface Message {
     /** 发送方支点ID */
     senderId: string;
-    /** 目标支点ID（插件填写） */
+    /** 目标支点ID（精确匹配，优先级最高） */
     targetId?: string;
+    /** 目标支点名称（模糊匹配，优先级次于 targetId） */
+    targetName?: string;
     /** 消息类型 */
     type: MessageType;
     /** 载荷 */
@@ -43,6 +46,8 @@ export interface Message {
 export interface PivotInfo {
     pivotId: string;
     type: PivotType;
+    /** 支点自定义名称（注册时可指定，可用于路由匹配） */
+    name?: string;
     capabilities?: Record<string, unknown>;
     /** 该支点的价格表标识（支持动态定价，仅做标记用） */
     priceTable?: string;
