@@ -11,8 +11,8 @@
  *   await agent.connect();
  */
 
-import { BasePivot } from "../src/client/base-pivot.ts";
-import type { Message as GWMessage } from "../src/protocol/message.ts";
+import { BasePivot } from "../sdk/base-pivot-sdk.ts";
+import type { Message } from "../sdk/type.ts";
 
 export interface AgentOptions {
   /** 网关地址 */
@@ -49,7 +49,7 @@ interface ToolCall {
 }
 
 interface QueuedTask {
-  message: GWMessage;
+  message: Message;
 }
 
 const FREE_ACTION_INTERVAL = 15000; // 15 秒
@@ -161,7 +161,7 @@ export class Agent extends BasePivot {
   }
 
   /** 收到网关推送的任务 —— 入队，不阻塞 /register 循环 */
-  async onTask(message: GWMessage): Promise<void> {
+  async onTask(message: Message): Promise<void> {
     this.queue.push({ message });
     if (!this.isConsuming) {
       this._consumeQueue().catch((err) => {
@@ -183,7 +183,7 @@ export class Agent extends BasePivot {
   }
 
   /** 处理单条消息 */
-  private async _processSingleTask(message: GWMessage): Promise<void> {
+  private async _processSingleTask(message: Message): Promise<void> {
     const taskId = message.payload?.taskId as string | undefined;
     const data = message.payload?.data;
     const senderId = message.senderId;

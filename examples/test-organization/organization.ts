@@ -10,7 +10,7 @@
 
 import { AgentSDK, type AgentSDKOptions, type AIMessage } from "./agent-sdk.ts";
 import { Person } from "./person.ts";
-import type { Message as GWMessage } from "../../src/protocol/message.ts";
+import type { Message as GWMessage } from "../../sdk/type.ts";
 
 export interface OrganizationOptions extends Omit<AgentSDKOptions, "type"> {
   /** 组织名称 */

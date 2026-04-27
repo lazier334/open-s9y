@@ -1,6 +1,7 @@
 import type { WebSocket } from "ws";
 import type { FastifyReply } from "fastify";
-import type { Message, PivotInfo, Status } from "../protocol/message.ts";
+import type { Message, PivotInfo, Status } from "../sdk/type.ts";
+import type { BasePivot } from "../sdk/base-pivot-sdk.ts";
 
 export interface Connection {
   socket?: WebSocket;
@@ -34,10 +35,11 @@ export type ConnectionEventHandler = {
 };
 
 /**
- * 连接治理中心
- * - 管理活跃连接 Map（含 WS 和 HTTP 长轮询）
+ * 统一支点管理器
+ * - 管理活跃连接 Map（WS 和 HTTP 长轮询）
  * - 心跳检测与超时断开
- * - 断线缓存（pivotCache），重连时直接覆盖
+ * - 断线缓存，重连时直接覆盖
+ * - 任务路由表（taskId → pivotId），断连自动清理
  */
 export class ConnectionManager {
   private connections = new Map<string, Connection>();
@@ -48,6 +50,12 @@ export class ConnectionManager {
   private handlers: ConnectionEventHandler;
   private cleanupTimer?: NodeJS.Timeout;
 
+  // ─── 任务路由表（原 TaskRouter） ───
+  private taskRoutes = new Map<string, string>();
+
+  // ─── 本地支点（进程内插件） ───
+  private localPivots = new Map<string, BasePivot>();
+
   constructor(options: ConnectionManagerOptions = {}, handlers: ConnectionEventHandler = {}) {
     this.heartbeatInterval = options.heartbeatInterval ?? 30_000;
     this.pivotTimeout = options.pivotTimeout ?? 60_000;
@@ -56,11 +64,66 @@ export class ConnectionManager {
     this.cleanupTimer = setInterval(() => this._cleanupCache(), this.pivotCacheTTL);
   }
 
+  /** 记录任务到支点的路由映射 */
+  setRoute(taskId: string, pivotId: string): void {
+    this.taskRoutes.set(taskId, pivotId);
+  }
+
+  /** 根据任务 ID 查询负责处理的支点 ID */
+  getPivotId(taskId: string): string | undefined {
+    return this.taskRoutes.get(taskId);
+  }
+
+  /** 删除指定任务的路由记录 */
+  removeRoute(taskId: string): boolean {
+    return this.taskRoutes.delete(taskId);
+  }
+
+  /** 检查指定任务是否存在路由记录 */
+  hasRoute(taskId: string): boolean {
+    return this.taskRoutes.has(taskId);
+  }
+
+  /** 批量删除指定支点负责的所有任务路由 */
+  removePivotRoutes(pivotId: string): number {
+    let count = 0;
+    for (const [taskId, cid] of this.taskRoutes.entries()) {
+      if (cid === pivotId) {
+        this.taskRoutes.delete(taskId);
+        count++;
+      }
+    }
+    return count;
+  }
+
+  // ─── 本地支点管理 ───
+
+  /** 注册本地支点（进程内插件） */
+  addLocal(pivotId: string, pivot: BasePivot): void {
+    this.localPivots.set(pivotId, pivot);
+  }
+
+  /** 获取本地支点实例 */
+  getLocal(pivotId: string): BasePivot | undefined {
+    return this.localPivots.get(pivotId);
+  }
+
+  /** 获取所有本地支点的基本信息 */
+  getLocalPivotsInfo(): Array<{ pivotId: string; type: string; capabilities?: Record<string, unknown> }> {
+    const result: Array<{ pivotId: string; type: string; capabilities?: Record<string, unknown> }> = [];
+    for (const [pid, pivot] of this.localPivots) {
+      result.push({
+        pivotId: pid,
+        type: pivot.options.type ?? "other",
+        capabilities: pivot.options.capabilities,
+      });
+    }
+    return result;
+  }
+
   /**
    * 尝试注册连接（WS/HTTP 统一逻辑）
    * @returns { accepted, reason }
-   * - accepted: 是否接受
-   * - reason: 拒绝原因（如冲突）
    */
   tryRegister(pivotId: string): { accepted: boolean; reason?: string } {
     if (this.connections.has(pivotId)) {
@@ -69,9 +132,7 @@ export class ConnectionManager {
     return { accepted: true };
   }
 
-  /**
-   * 添加新的支点 WS 连接
-   */
+  /** 添加新的支点 WS 连接 */
   addWs(pivotId: string, pivotInfo: PivotInfo, socket: WebSocket): Connection {
     const now = Date.now();
     const cached = this.pivotCache.get(pivotId);
@@ -96,10 +157,7 @@ export class ConnectionManager {
     return connection;
   }
 
-  /**
-   * 添加新的 HTTP 长轮询连接
-   * send 方法由 /register handler 在挂起时注入
-   */
+  /** 添加新的 HTTP 长轮询连接 */
   addHttp(pivotId: string, pivotInfo: PivotInfo, reply: FastifyReply): Connection {
     const now = Date.now();
     const cached = this.pivotCache.get(pivotId);
@@ -121,30 +179,22 @@ export class ConnectionManager {
     return connection;
   }
 
-  /**
-   * 获取指定支点的连接信息
-   */
+  /** 获取指定支点的连接信息 */
   get(pivotId: string): Connection | undefined {
     return this.connections.get(pivotId);
   }
 
-  /**
-   * 检查指定支点是否仍有活跃连接
-   */
+  /** 检查指定支点是否仍有活跃连接 */
   has(pivotId: string): boolean {
     return this.connections.has(pivotId);
   }
 
-  /**
-   * 检查指定支点是否在线
-   */
+  /** 检查指定支点是否在线 */
   isOnline(pivotId: string): boolean {
     return this.connections.has(pivotId);
   }
 
-  /**
-   * 移除 WS 连接
-   */
+  /** 移除 WS 连接 */
   removeWs(pivotId: string): boolean {
     const connection = this.connections.get(pivotId);
     if (!connection || connection.isHttp) return false;
@@ -152,14 +202,13 @@ export class ConnectionManager {
     this._cachePivot(pivotId, connection);
     this._clearTimers(connection);
     this.connections.delete(pivotId);
+    this.removePivotRoutes(pivotId);
     console.info('WS 支点移除', pivotId);
     this.handlers.onDisconnect?.(pivotId);
     return true;
   }
 
-  /**
-   * 移除 HTTP 连接（长轮询断开）
-   */
+  /** 移除 HTTP 连接（长轮询断开） */
   removeHttp(pivotId: string, cache = true): boolean {
     const connection = this.connections.get(pivotId);
     if (!connection || !connection.isHttp) return false;
@@ -168,14 +217,13 @@ export class ConnectionManager {
       this._cachePivot(pivotId, connection);
     }
     this.connections.delete(pivotId);
+    this.removePivotRoutes(pivotId);
     console.info('HTTP 支点移除', pivotId);
     this.handlers.onDisconnect?.(pivotId);
     return true;
   }
 
-  /**
-   * 更新支点心跳时间
-   */
+  /** 更新支点心跳时间 */
   updateHeartbeat(pivotId: string): boolean {
     const connection = this.connections.get(pivotId);
     if (!connection) return false;
@@ -188,16 +236,12 @@ export class ConnectionManager {
     return true;
   }
 
-  /**
-   * 获取所有活跃连接的副本
-   */
+  /** 获取所有活跃连接的副本 */
   getAll(): Map<string, Connection> {
     return new Map(this.connections);
   }
 
-  /**
-   * 获取缓存
-   */
+  /** 获取缓存 */
   getCache(pivotId: string): CachedPivot | undefined {
     const cached = this.pivotCache.get(pivotId);
     if (cached && Date.now() - cached.disconnectAt > this.pivotCacheTTL) {
@@ -207,16 +251,12 @@ export class ConnectionManager {
     return cached;
   }
 
-  /**
-   * 删除缓存
-   */
+  /** 删除缓存 */
   deleteCache(pivotId: string): boolean {
     return this.pivotCache.delete(pivotId);
   }
 
-  /**
-   * 为指定连接启动心跳和超时定时器（仅 WS）
-   */
+  /** 为指定连接启动心跳和超时定时器（仅 WS） */
   private _startTimers(pivotId: string, connection: Connection): void {
     connection.heartbeatTimer = setInterval(() => {
       if (connection.socket?.readyState === 1) {
@@ -229,13 +269,12 @@ export class ConnectionManager {
       this._destroy(connection);
       this._cachePivot(pivotId, connection);
       this.connections.delete(pivotId);
+      this.removePivotRoutes(pivotId);
       this.handlers.onDisconnect?.(pivotId);
     }, this.pivotTimeout);
   }
 
-  /**
-   * 清理连接上的所有定时器
-   */
+  /** 清理连接上的所有定时器 */
   private _clearTimers(connection: Connection): void {
     if (connection.heartbeatTimer) {
       clearInterval(connection.heartbeatTimer);
@@ -247,9 +286,7 @@ export class ConnectionManager {
     }
   }
 
-  /**
-   * 将连接信息缓存到 pivotCache
-   */
+  /** 将连接信息缓存到 pivotCache */
   private _cachePivot(pivotId: string, connection: Connection): void {
     this.pivotCache.set(pivotId, {
       pivotInfo: connection.pivotInfo,
@@ -258,9 +295,7 @@ export class ConnectionManager {
     });
   }
 
-  /**
-   * 清理过期缓存
-   */
+  /** 清理过期缓存 */
   private _cleanupCache(): void {
     const now = Date.now();
     for (const [pivotId, cached] of this.pivotCache.entries()) {
@@ -270,9 +305,7 @@ export class ConnectionManager {
     }
   }
 
-  /**
-   * 关闭治理中心，清理所有资源
-   */
+  /** 关闭治理中心，清理所有资源 */
   close(): void {
     if (this.cleanupTimer) {
       clearInterval(this.cleanupTimer);
@@ -281,13 +314,16 @@ export class ConnectionManager {
     for (const connection of this.connections.values()) {
       this._destroy(connection);
     }
+    for (const pivot of this.localPivots.values()) {
+      pivot.disconnect();
+    }
     this.connections.clear();
+    this.localPivots.clear();
     this.pivotCache.clear();
+    this.taskRoutes.clear();
   }
 
-  /**
-   * 强制销毁连接
-   */
+  /** 强制销毁连接 */
   private _destroy(connection: Connection): void {
     this._clearTimers(connection);
     try {

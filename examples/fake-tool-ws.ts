@@ -8,8 +8,8 @@
  *   node --experimental-strip-types examples/fake-tool-ws.ts
  */
 
-import { BasePivot } from "../src/client/base-pivot.ts";
-import type { Message } from "../src/protocol/message.ts";
+import { BasePivot } from "../sdk/base-pivot-sdk.ts";
+import type { Message } from "../sdk/type.ts";
 
 class FakeToolWs extends BasePivot {
   async onTask(message: Message): Promise<Record<string, unknown>> {

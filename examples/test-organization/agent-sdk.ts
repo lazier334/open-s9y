@@ -5,8 +5,8 @@
  * - onTask 抽象方法，由子类实现业务逻辑
  */
 
-import { BasePivot } from "../../src/client/base-pivot.ts";
-import type { Message as GWMessage } from "../../src/protocol/message.ts";
+import { BasePivot } from "../../sdk/base-pivot-sdk.ts";
+import type { Message } from "../../sdk/type.ts";
 
 export interface AgentSDKOptions {
   /** 网关地址 */
@@ -107,7 +107,7 @@ export abstract class AgentSDK extends BasePivot {
   }
 
   /** 子类必须实现：收到网关推送的任务 */
-  abstract onTask(message: GWMessage): Promise<void>;
+  abstract onTask(message: Message): Promise<void>;
 
   /** 网关查询结果时返回（默认空实现） */
   onResultRequest(_taskId: string): unknown {

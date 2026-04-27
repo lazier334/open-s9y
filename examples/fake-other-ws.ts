@@ -9,7 +9,7 @@
  */
 
 import { WebSocket } from "ws";
-import type { Message } from "../src/protocol/message.ts";
+import type { Message } from "../sdk/type.ts";
 
 const gatewayUrl = process.env.GATEWAY_URL ?? "ws://localhost:3000";
 const pivotId = process.env.CLIENT_ID ?? "fake-other-ws-01";

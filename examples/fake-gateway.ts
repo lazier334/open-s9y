@@ -8,8 +8,8 @@
  *   node --experimental-strip-types examples/fake-gateway.ts
  */
 
-import { BasePivot } from "../src/client/base-pivot.ts";
-import type { Message } from "../src/protocol/message.ts";
+import { BasePivot } from "../sdk/base-pivot-sdk.ts";
+import type { Message } from "../sdk/type.ts";
 
 class FakeGateway extends BasePivot {
   private taskResults = new Map<string, unknown>();

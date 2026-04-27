@@ -12,7 +12,7 @@
  */
 
 import { AgentSDK, type AgentSDKOptions } from "./test-organization/agent-sdk.ts";
-import type { Message as GWMessage } from "../src/protocol/message.ts";
+import type { Message as GWMessage } from "../sdk/type.ts";
 
 export interface AutoDetectorOptions extends Omit<AgentSDKOptions, "type"> {
   /** 是否只发给 gateway 类型的节点，默认 true */

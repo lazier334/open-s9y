@@ -1,6 +1,6 @@
-import { BasePivot } from "../src/client/base-pivot.ts";
-import type { Message } from "../src/protocol/message.ts";
-import type { GatewayServer } from "../src/core/server.ts";
+import { BasePivot } from "../sdk/base-pivot-sdk.ts";
+import type { Message } from "../sdk/type.ts";
+import type { GatewayServer } from "../src/server.ts";
 
 interface PivotRecord {
   pivotId: string;
@@ -73,4 +73,15 @@ export class RouterPivot extends BasePivot {
     this.assignedCounts.set(selected.pivotId, selected.assignedCount + 1);
     return selected.pivotId;
   }
+}
+
+/** fun-adapter 工厂函数 */
+export function createPivot(server: GatewayServer): RouterPivot {
+  const pluginPivotId = process.env.PLUGIN_PIVOT_ID ?? "router-01";
+  return new RouterPivot({
+    pivotId: pluginPivotId,
+    type: "system",
+    capabilities: { routing: true },
+    gateway: server,
+  });
 }

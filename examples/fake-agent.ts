@@ -9,8 +9,8 @@
  *   node --experimental-strip-types examples/fake-agent.ts
  */
 
-import { BasePivot } from "../src/client/base-pivot.ts";
-import type { Message } from "../src/protocol/message.ts";
+import { BasePivot } from "../sdk/base-pivot-sdk.ts";
+import type { Message } from "../sdk/type.ts";
 
 class FakeAgent extends BasePivot {
   private replies = [

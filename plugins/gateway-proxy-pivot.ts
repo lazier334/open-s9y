@@ -1,5 +1,6 @@
-import { BasePivot } from "../src/client/base-pivot.ts";
-import type { Message } from "../src/protocol/message.ts";
+import { BasePivot } from "../sdk/base-pivot-sdk.ts";
+import type { Message } from "../sdk/type.ts";
+import type { GatewayServer } from "../src/server.ts";
 
 interface UpstreamConfig {
   /** 上游网关地址 */
@@ -88,4 +89,16 @@ export class GatewayProxyPivot extends BasePivot {
 
     return res.json();
   }
+}
+
+/** fun-adapter 工厂函数 */
+export function createPivot(_server: GatewayServer): GatewayProxyPivot {
+  const proxyCaps = GatewayProxyPivot.CONFIG
+    .filter((c) => c.enabled)
+    .reduce((acc, c) => ({ ...acc, ...c.capabilities }), {});
+
+  return new GatewayProxyPivot({
+    pivotId: "gateway-proxy",
+    capabilities: Object.keys(proxyCaps).length > 0 ? proxyCaps : { gatewayProxy: true },
+  });
 }
