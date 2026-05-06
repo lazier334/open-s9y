@@ -23,9 +23,8 @@ export async function scanAndRegister(
 
   let files: string[];
   try {
-    files = readdirSync(dir).filter(
-      (f) => f.endsWith(".ts") || f.endsWith(".js")
-    );
+    files = readdirSync(dir).filter(f => f.endsWith(".ts") || f.endsWith(".js"));
+    files.sort();
   } catch {
     console.warn(`插件目录不存在: ${dir}`);
     return [];
