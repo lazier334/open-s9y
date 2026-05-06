@@ -1,6 +1,7 @@
 import type { Message, PivotInfo } from "../../sdk/type.ts";
 import type { WebSocketServer, WebSocket } from "ws";
 import type { GatewayServer } from "../server.ts";
+import type { IncomingMessage } from "node:http";
 
 /**
  * WebSocket 协议适配器
@@ -13,7 +14,12 @@ export class WsAdapter {
   constructor(server: GatewayServer) { this.server = server; }
 
   setup(wss: WebSocketServer): void {
-    wss.on("connection", (socket: WebSocket) => {
+    wss.on("connection", async (socket: WebSocket, request: IncomingMessage) => {
+      if (!await this.server.connections.authenticateRequest(request)) {
+        socket.close(1008, '身份验证失败');
+        return;
+      }
+
       let pivotId: string | undefined;
 
       socket.on("message", async (raw: Buffer) => {
@@ -49,7 +55,7 @@ export class WsAdapter {
               priceTable: info.priceTable ?? cached?.pivotInfo.priceTable,
             };
 
-            this.server.connections.addWs(pivotId, pivotInfo, socket);
+            await this.server.connections.addWs(pivotId, pivotInfo, socket, request);
             return;
           }
 

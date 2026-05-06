@@ -1,6 +1,8 @@
 import type { Message, PivotInfo, Status } from "../sdk/type.ts";
+import type { FastifyReply, FastifyRequest } from "fastify";
 import type { BasePivot } from "../sdk/base-pivot-sdk.ts";
-import type { FastifyReply } from "fastify";
+import type { IncomingMessage } from "node:http";
+import { randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
 
 export interface Connection {
@@ -120,6 +122,26 @@ export class ConnectionManager {
     return result;
   }
 
+  /** 网络认证：验证 request */
+  async authenticateRequest(request: FastifyRequest | IncomingMessage) {
+    const auditPivotId = process.env.AUDIT_PIVOT_ID ?? "audit-01";
+    const auditPivot = this.getLocal(auditPivotId);
+    if (auditPivot) {
+      const message: Message = {
+        senderId: "gateway",
+        targetId: auditPivotId,
+        type: "authenticateRequest",
+        payload: { data: { request } },
+        traceId: randomUUID(),
+        timestamp: Date.now(),
+      };
+      return await auditPivot.onTask(message);
+    }
+    return true;
+  }
+
+  // ─── 连接管理 ───
+
   /**
    * 尝试注册连接（WS/HTTP 统一逻辑）
    * @returns { accepted, reason }
@@ -131,8 +153,27 @@ export class ConnectionManager {
     return { accepted: true };
   }
 
+  /**
+   * 审查连接是否有效
+   */
+  async auditConnection(connection: Connection, request: FastifyRequest | IncomingMessage) {
+    const auditPivotId = process.env.AUDIT_PIVOT_ID ?? "audit-01";
+    const auditPivot = this.getLocal(auditPivotId);
+    if (auditPivot) {
+      const message: Message = {
+        senderId: "gateway",
+        targetId: auditPivotId,
+        type: "auditConnection",
+        payload: { data: { connection, request } },
+        traceId: randomUUID(),
+        timestamp: Date.now(),
+      };
+      return await auditPivot.onTask(message);
+    }
+  }
+
   /** 添加新的支点 WS 连接 */
-  addWs(pivotId: string, pivotInfo: PivotInfo, socket: WebSocket): Connection {
+  async addWs(pivotId: string, pivotInfo: PivotInfo, socket: WebSocket, request: IncomingMessage): Promise<Connection> {
     const connection: Connection = {
       socket,
       pivotInfo,
@@ -144,7 +185,7 @@ export class ConnectionManager {
         socket.send(JSON.stringify(message));
       },
     };
-
+    await this.auditConnection(connection, request);
     this.connections.set(pivotId, connection);
     console.log('WS 支点注册', pivotId);
     this._startTimers(pivotId, connection);
@@ -153,7 +194,7 @@ export class ConnectionManager {
   }
 
   /** 添加新的 HTTP 长轮询连接 */
-  addHttp(pivotId: string, pivotInfo: PivotInfo, reply: FastifyReply): Connection {
+  async addHttp(pivotId: string, pivotInfo: PivotInfo, reply: FastifyReply, request: FastifyRequest): Promise<Connection> {
     const connection: Connection = {
       reply,
       pivotInfo,
@@ -163,6 +204,7 @@ export class ConnectionManager {
       },
     };
 
+    await this.auditConnection(connection, request);
     this.connections.set(pivotId, connection);
     console.log('HTTP 支点注册', pivotId);
     this.handlers.onConnect?.(pivotId, connection);

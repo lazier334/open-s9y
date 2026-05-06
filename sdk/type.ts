@@ -1,9 +1,7 @@
-/**
- * 统一消息格式定义
- * 所有传输层协议（HTTP / WebSocket）最终都转换为 Message 在内部流转
- */
-export type MessageType = "push" | "pipe" | "register" | "heartbeat" | "pivots";
+/** 消息类型 */
+export type MessageType = "push" | "pipe" | "register" | "heartbeat" | "pivots" | string;
 
+/** 支点类型 */
 export type PivotType = "user" | "agent" | "system" | "gateway" | "tool" | "other";
 
 export interface MessagePayload {

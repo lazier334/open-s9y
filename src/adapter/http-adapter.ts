@@ -1,5 +1,5 @@
-import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Message, PivotInfo, PipeQuery, PivotsQuery } from "../../sdk/type.ts";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { GatewayServer } from "../server.ts";
 import { randomUUID } from "node:crypto";
 
@@ -13,6 +13,13 @@ export class HttpAdapter {
   constructor(server: GatewayServer) { this.server = server; }
 
   register(fastify: FastifyInstance): void {
+    // ── 第1层：网络级 cookie 认证 ──
+    fastify.addHook('preHandler', async (request, reply) => {
+      if (!await this.server.connections.authenticateRequest(request)) {
+        return reply.code(401).send({ error: '身份验证失败' });
+      }
+    });
+
     // ── POST /register ──
     fastify.post<{ Body: Partial<PivotInfo> & { pivotId?: string } }>(
       "/register",
@@ -24,50 +31,53 @@ export class HttpAdapter {
           else throw new Error("当前请求已响应");
         };
 
-        const result = this.server.connections.tryRegister(pivotId);
-        if (!result.accepted) {
-          return send({ error: result.reason }, 409);
-        }
+        try {
+          const result = this.server.connections.tryRegister(pivotId);
+          if (!result.accepted) {
+            return send({ error: result.reason }, 409);
+          }
 
-        const cached = this.server.connections.getCache(pivotId);
-        const pivotInfo: PivotInfo = {
-          pivotId,
-          type: body.type ?? cached?.pivotInfo.type ?? "other",
-          name: body.name ?? cached?.pivotInfo.name,
-          capabilities: body.capabilities ?? cached?.pivotInfo.capabilities,
-          priceTable: body.priceTable ?? cached?.pivotInfo.priceTable,
-        };
+          const cached = this.server.connections.getCache(pivotId);
+          const pivotInfo: PivotInfo = {
+            pivotId,
+            type: body.type ?? cached?.pivotInfo.type ?? "other",
+            name: body.name ?? cached?.pivotInfo.name,
+            capabilities: body.capabilities ?? cached?.pivotInfo.capabilities,
+            priceTable: body.priceTable ?? cached?.pivotInfo.priceTable,
+          };
+          const conn = await this.server.connections.addHttp(pivotId, pivotInfo, reply, request);
+          conn.send = send;
 
-        const conn = this.server.connections.addHttp(pivotId, pivotInfo, reply);
-        conn.send = send;
-
-        return new Promise<void>((resolve, reject) => {
-          let timer: any;
-          const cleanConn = () => {
-            try {
-              clearTimeout(timer);
-              conn.send = () => {
-                throw new Error("HTTP 连接已断开");
-              };
-              if (this.server.connections.get(pivotId) === conn) {
-                this.server.connections.removeHttp(pivotId);
+          return new Promise<void>((resolve, reject) => {
+            let timer: any;
+            const cleanConn = () => {
+              try {
+                clearTimeout(timer);
+                conn.send = () => {
+                  throw new Error("HTTP 连接已断开");
+                };
+                if (this.server.connections.get(pivotId) === conn) {
+                  this.server.connections.removeHttp(pivotId);
+                }
+                resolve();
+              } catch (err) {
+                reject(err);
               }
-              resolve();
-            } catch (err) {
-              reject(err);
-            }
-          };
-          timer = setTimeout(() => {
-            send({ type: "noop" }, 200);
-            cleanConn();
-          }, this.server.requestTimeout);
+            };
+            timer = setTimeout(() => {
+              send({ type: "noop" }, 200);
+              cleanConn();
+            }, this.server.requestTimeout);
 
-          conn.send = (msg: Message) => {
-            send(msg, 200);
-            cleanConn();
-          };
-          reply.raw.on("close", cleanConn);
-        });
+            conn.send = (msg: Message) => {
+              send(msg, 200);
+              cleanConn();
+            };
+            reply.raw.on("close", cleanConn);
+          });
+        } catch (err) {
+          return send({ error: err instanceof Error ? err.message : String(err) }, 503);
+        }
       }
     );
 
