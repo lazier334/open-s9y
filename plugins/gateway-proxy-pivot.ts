@@ -45,11 +45,11 @@ export class GatewayProxyPivot extends BasePivot {
     for (const cfg of GatewayProxyPivot.CONFIG) {
       if (!cfg.enabled) continue;
       this.upstreams.push({ url: cfg.url, pivotId: cfg.pivotId });
-      console.log(`[GatewayProxy] 已配置上游网关: ${cfg.url} (pivotId=${cfg.pivotId})`);
+      console.log(`已配置上游网关: ${cfg.url} (pivotId=${cfg.pivotId})`);
     }
 
     if (this.upstreams.length === 0) {
-      console.log("[GatewayProxy] 无启用的上游网关连接");
+      console.log("无启用的上游网关连接");
     }
   }
 

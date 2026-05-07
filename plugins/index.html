@@ -21,6 +21,21 @@
       --cyan: #06b6d4;
     }
 
+    :root[data-theme="light"] {
+      --bg: #f5f5f5;
+      --card: #ffffff;
+      --border: #d4d4d8;
+      --text: #18181b;
+      --muted: #71717a;
+      --green: #16a34a;
+      --yellow: #ca8a04;
+      --red: #dc2626;
+      --blue: #2563eb;
+      --purple: #9333ea;
+      --orange: #ea580c;
+      --cyan: #0891b2;
+    }
+
     * {
       margin: 0;
       padding: 0;
@@ -68,9 +83,23 @@
       align-items: center;
     }
 
-    .header-actions .ts {
+    .clock-stack {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      line-height: 1.4;
       font-size: 12px;
       color: var(--muted);
+    }
+
+    .clock-stack .clock-live {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .header-actions .ts {
+      display: none;
     }
 
     button {
@@ -96,6 +125,56 @@
     button.danger:hover {
       background: var(--red);
       color: #fff;
+    }
+
+    button.warn {
+      border-color: var(--orange);
+      color: var(--orange);
+    }
+
+    button.warn:hover {
+      background: var(--orange);
+      color: #fff;
+    }
+
+    /* ── 开关 toggle ── */
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--muted);
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .toggle-track {
+      width: 36px;
+      height: 20px;
+      border-radius: 10px;
+      background: var(--border);
+      position: relative;
+      transition: background .2s;
+      flex-shrink: 0;
+    }
+
+    .toggle-track.on {
+      background: var(--blue);
+    }
+
+    .toggle-knob {
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #fff;
+      transition: transform .2s;
+    }
+
+    .toggle-track.on .toggle-knob {
+      transform: translateX(16px);
     }
 
     .tabs {
@@ -344,6 +423,108 @@
       color: var(--muted);
       margin-left: 8px;
     }
+
+    fieldset {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px 20px;
+      margin-bottom: 16px;
+    }
+
+    fieldset legend {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--blue);
+      padding: 0 8px;
+    }
+
+    label {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 10px;
+      font-size: 13px;
+      color: var(--muted);
+      min-width: 0;
+    }
+
+    label input,
+    label select {
+      flex: 1;
+      max-width: 420px;
+      padding: 6px 10px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      font-size: 13px;
+      font-family: inherit;
+    }
+
+    label input:focus,
+    label select:focus {
+      outline: none;
+      border-color: var(--blue);
+    }
+
+    #panel-config {
+      max-width: 720px;
+      margin: 0 auto;
+    }
+
+    .config-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 0;
+      position: sticky;
+      top: 56px;
+      background: var(--bg);
+      z-index: 5;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 20px;
+    }
+
+    .save-btn {
+      padding: 8px 24px;
+      background: var(--blue);
+      border-color: var(--blue);
+      color: #fff;
+      font-weight: 600;
+    }
+
+    .save-btn:hover {
+      opacity: .85;
+    }
+
+    .save-hint {
+      font-size: 12px;
+      color: var(--green);
+    }
+
+    #config-msg {
+      font-size: 13px;
+    }
+
+    #config-msg.error {
+      color: var(--red);
+      padding: 6px 10px;
+      background: rgba(239, 68, 68, .1);
+      border-radius: 6px;
+    }
+
+    .field-hint {
+      display: block;
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: -6px;
+      margin-bottom: 10px;
+      margin-left: 0;
+    }
+
+    label.has-hint {
+      margin-bottom: 2px;
+    }
   </style>
 </head>
 
@@ -352,15 +533,26 @@
   <header>
     <h1><span class="dot"></span>S9Y 网关</h1>
     <div class="header-actions">
-      <span class="ts" id="clock"></span>
-      <button onclick="refresh()">刷新</button>
-      <button class="danger" onclick="showShutdown()">关机</button>
+      <span class="toggle-row" onclick="toggleAutoRefresh()" title="自动刷新数据">
+        <span class="toggle-track" id="toggle-refresh"><span class="toggle-knob"></span></span> 自动刷新
+      </span>
+      <span class="toggle-row" onclick="toggleTheme()" title="切换亮色/暗色模式">
+        <span class="toggle-track" id="toggle-theme"><span class="toggle-knob"></span></span> 暗色
+      </span>
+      <div class="clock-stack">
+        <span class="clock-live" id="clock-live"></span>
+        <span id="clock-refresh">-</span>
+      </div>
+      <button onclick="refresh()">刷新数据</button>
+      <button id="btn-restart" class="warn" onclick="showRestart()">重启</button>
+      <button id="btn-shutdown" class="danger" onclick="showShutdown()">关机</button>
     </div>
   </header>
 
   <div class="tabs">
     <button id="tab-pivots" class="active" onclick="switchTab('pivots')">支点列表</button>
     <button id="tab-tasks" onclick="switchTab('tasks')">任务列表</button>
+    <button id="tab-config" onclick="switchTab('config')">配置</button>
   </div>
 
   <main>
@@ -447,6 +639,76 @@
       </div>
       <div class="empty" id="cache-empty" style="display:none">暂无缓存</div>
     </div>
+
+    <!-- config tab -->
+    <div id="panel-config" style="display:none;">
+      <div class="section-title">系统配置
+        <span class="refresh-hint" id="task-count">(修改后需重启才能生效)</span>
+      </div>
+      <form id="config-form" onsubmit="saveConfig(event)">
+
+        <div class="config-actions">
+          <button type="submit" class="save-btn">保存配置</button>
+          <span id="config-msg"></span>
+          <span class="save-hint" id="save-hint"></span>
+        </div>
+
+        <fieldset>
+          <legend>网关配置</legend>
+          <label class="has-hint">GATEWAY_PORT</label>
+          <span class="field-hint">网关监听端口</span>
+          <label><input name="GATEWAY_PORT" type="number" min="1" max="65535" placeholder=""></label>
+          <label class="has-hint">API_SHUTDOWN</label>
+          <span class="field-hint">是否暴露 /shutdown 关机接口，用于远程关闭网关服务</span>
+          <label><select name="API_SHUTDOWN">
+              <option value="true">启用</option>
+              <option value="false">禁用</option>
+            </select></label>
+          <label class="has-hint">API_ADMIN</label>
+          <span class="field-hint">是否启用管理面板（/index.html 及其 API），禁用后无法通过网页查看系统状态</span>
+          <label><select name="API_ADMIN">
+              <option value="true">启用</option>
+              <option value="false">禁用</option>
+            </select></label>
+          <label class="has-hint">API_CONFIG</label>
+          <span class="field-hint">是否允许通过管理面板修改配置。关闭后配置页将隐藏，只能通过 config.json 文件修改</span>
+          <label><select name="API_CONFIG">
+              <option value="true">启用</option>
+              <option value="false">禁用</option>
+            </select></label>
+          <label class="has-hint">GATEWAY_LOG_PATH</label>
+          <span class="field-hint">网关日志文件路径，console 输出会同时写入此文件</span>
+          <label><input name="GATEWAY_LOG_PATH" type="text"></label>
+          <label class="has-hint">GATEWAY_CMD</label>
+          <span class="field-hint">网关启动命令</span>
+          <label><input name="GATEWAY_CMD" type="text" placeholder="npm run gateway"></label>
+        </fieldset>
+
+        <fieldset>
+          <legend>认证配置（AuditPivot）</legend>
+          <label class="has-hint">AUDIT_KEY_NAME</label>
+          <span class="field-hint">认证 Cookie 名称，管理面板登录时设置的 Cookie 键名</span>
+          <label><input name="AUDIT_KEY_NAME" type="text" placeholder="s9y-key"></label>
+          <label class="has-hint">AUDIT_AUTH_KEYS</label>
+          <span class="field-hint">允许的认证密钥，逗号分隔，每个值对应一种支点类型</span>
+          <label><input name="AUDIT_AUTH_KEYS" type="text" placeholder="user,agent,system,gateway,tool,other"></label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Broker 配置（任务编排）</legend>
+          <label class="has-hint">BROKER_DEFAULT_TIMEOUT</label>
+          <span class="field-hint">任务默认超时时间，单位毫秒，超时后触发重试</span>
+          <label><input name="BROKER_DEFAULT_TIMEOUT" type="number" min="1000" step="1000" placeholder="30000"></label>
+          <label class="has-hint">BROKER_MAX_RETRIES</label>
+          <span class="field-hint">任务最大重试次数，超过后进入死信队列</span>
+          <label><input name="BROKER_MAX_RETRIES" type="number" min="0" max="10" placeholder="3"></label>
+          <label class="has-hint">BROKER_RESULT_TTL</label>
+          <span class="field-hint">任务结果缓存时间，单位毫秒，超过后自动清理</span>
+          <label><input name="BROKER_RESULT_TTL" type="number" min="10000" step="10000" placeholder="600000"></label>
+        </fieldset>
+
+      </form>
+    </div>
   </main>
 
   <!-- timeline popup -->
@@ -461,6 +723,26 @@
         <button onclick="hideShutdown()">取消</button>
         <button class="danger" onclick="doShutdown()">确认关机</button>
       </div>
+    </div>
+  </div>
+
+  <!-- restart modal -->
+  <div class="modal-overlay" id="restart-modal">
+    <div class="modal">
+      <h2>确认重启</h2>
+      <p>重启后所有连接将断开，正在进行的任务可能丢失。确定要重启网关服务吗？</p>
+      <div class="actions">
+        <button onclick="hideRestart()">取消</button>
+        <button class="danger" onclick="doRestart()">确认重启</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- restarting status modal -->
+  <div class="modal-overlay" id="restarting-modal">
+    <div class="modal">
+      <h2>正在重启网关...</h2>
+      <p>服务即将恢复，页面会自动刷新。</p>
     </div>
   </div>
 
@@ -479,6 +761,7 @@
     let tasksData = [];
     let terminalData = [];
     let cacheData = [];
+    let configData = {};
 
     function switchTab(tab) {
       currentTab = tab;
@@ -486,17 +769,27 @@
       document.getElementById('tab-' + tab).classList.add('active');
       document.getElementById('panel-pivots').style.display = tab === 'pivots' ? '' : 'none';
       document.getElementById('panel-tasks').style.display = tab === 'tasks' ? '' : 'none';
+      document.getElementById('panel-config').style.display = tab === 'config' ? '' : 'none';
+      if (tab === 'config') loadConfig();
       render();
     }
 
     async function refresh() {
       try {
-        const res = await fetch('admin/api/status');
-        const data = await res.json();
+        const [statusRes, configRes] = await Promise.all([
+          fetch('admin/api/status'),
+          fetch('admin/api/config'),
+        ]);
+        const data = await statusRes.json();
         pivotsData = data.pivots || [];
         tasksData = data.tasks || [];
         terminalData = data.terminal || [];
         cacheData = data.cached || [];
+        if (configRes.ok) {
+          configData = await configRes.json();
+          applyConfigFlags();
+        }
+        document.getElementById('clock-refresh').textContent = '↻' + new Date().toLocaleTimeString('zh-CN');
       } catch (e) {
         console.error('获取数据失败:', e);
       }
@@ -507,7 +800,6 @@
       renderStats();
       if (currentTab === 'pivots') renderPivots();
       else renderTasks();
-      document.getElementById('clock').textContent = new Date().toLocaleTimeString('zh-CN');
     }
 
     function renderStats() {
@@ -517,7 +809,7 @@
       const dead = terminalData.filter(t => t.status === 'dead_letter').length;
       const cached = cacheData.length;
       document.getElementById('stats').innerHTML =
-        `<div class="stat"><div class="label">在线支点</div><div class="value">${pivots}</div></div>` +
+        `<div class="stat"><div class="label">接入支点</div><div class="value">${pivots}</div></div>` +
         `<div class="stat"><div class="label">活跃任务</div><div class="value">${active}</div></div>` +
         `<div class="stat"><div class="label">完成任务</div><div class="value" style="color:var(--green)">${completed}</div></div>` +
         `<div class="stat"><div class="label">死信任务</div><div class="value" style="color:var(--red)">${dead}</div></div>` +
@@ -648,13 +940,157 @@
       }
     }
 
+    function showRestart() {
+      document.getElementById('restart-modal').classList.add('show');
+    }
+    function hideRestart() {
+      document.getElementById('restart-modal').classList.remove('show');
+    }
+    async function doRestart() {
+      try {
+        document.getElementById('restart-modal').classList.remove('show');
+        document.getElementById('restarting-modal').classList.add('show');
+        await fetch('restart', { method: 'POST' });
+        // 轮询等待服务恢复
+        for (let i = 0; i < 30; i++) {
+          await new Promise(r => setTimeout(r, 1000));
+          try {
+            const res = await fetch('admin/api/config');
+            if (res.ok) { location.reload(); return; }
+          } catch { }
+        }
+        location.reload();
+      } catch (e) {
+        document.getElementById('restarting-modal').classList.remove('show');
+        alert('重启失败: ' + e.message);
+      }
+    }
+
+    async function loadConfig() {
+      try {
+        const res = await fetch('admin/api/config');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        configData = await res.json();
+        applyConfigFlags();
+        const form = document.getElementById('config-form');
+        for (const [key, value] of Object.entries(configData)) {
+          const el = form.querySelector(`[name="${key}"]`);
+          if (!el) continue;
+          if (el.tagName === 'SELECT') el.value = String(value);
+          else el.value = value;
+        }
+        document.getElementById('config-msg').className = '';
+        document.getElementById('config-msg').textContent = '';
+      } catch (e) {
+        document.getElementById('config-msg').className = 'error';
+        document.getElementById('config-msg').textContent = '加载配置失败: ' + e.message;
+      }
+    }
+
+    function applyConfigFlags() {
+      // 关机/重启按钮：API_SHUTDOWN 控制
+      const showPower = configData.API_SHUTDOWN === true || configData.API_SHUTDOWN === 'true';
+      document.getElementById('btn-shutdown').style.display = showPower ? '' : 'none';
+      document.getElementById('btn-restart').style.display = showPower ? '' : 'none';
+      // 配置 Tab：API_CONFIG 控制
+      const showConfig = configData.API_CONFIG === true || configData.API_CONFIG === 'true';
+      const configTab = document.getElementById('tab-config');
+      configTab.style.display = showConfig ? '' : 'none';
+      if (!showConfig && currentTab === 'config') switchTab('pivots');
+    }
+
+    async function saveConfig(e) {
+      e.preventDefault();
+      const form = document.getElementById('config-form');
+      const fd = new FormData(form);
+      const body = {};
+      for (const [key, value] of fd.entries()) {
+        // 数字字段还原为数字
+        if (['GATEWAY_PORT', 'BROKER_DEFAULT_TIMEOUT', 'BROKER_MAX_RETRIES', 'BROKER_RESULT_TTL'].includes(key)) {
+          body[key] = Number(value);
+        } else if (['API_SHUTDOWN', 'API_ADMIN', 'API_CONFIG'].includes(key)) {
+          body[key] = value === 'true';
+        } else {
+          body[key] = value;
+        }
+      }
+      try {
+        const res = await fetch('admin/api/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const result = await res.json();
+        if (!res.ok) throw new Error(`HTTP ${res.status} ${result.error}`);
+        document.getElementById('save-hint').textContent = '已保存, 一共 ' + result.total + ' 个配置项';
+        document.getElementById('config-msg').className = '';
+        document.getElementById('config-msg').textContent = '';
+        setTimeout(() => { document.getElementById('save-hint').textContent = ''; }, 3000);
+      } catch (e) {
+        document.getElementById('config-msg').className = 'error';
+        document.getElementById('config-msg').textContent = '保存失败: ' + e.message;
+      }
+    }
+
     function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
     function truncate(s, n) { return String(s).length > n ? String(s).slice(0, n) + '...' : String(s); }
     function formatTTL(ms) { const s = ms / 1000; return s >= 60 ? `${Math.round(s / 60)}分钟` : `${Math.round(s)}秒`; }
 
-    // auto-refresh
-    refresh();
-    setInterval(refresh, 3000);
+    // ── 主题切换 ──
+    let light = localStorage.getItem('theme') === 'light';
+    applyTheme();
+    function applyTheme() {
+      document.documentElement.setAttribute('data-theme', light ? 'light' : '');
+      const track = document.getElementById('toggle-theme');
+      if (light) track.classList.add('on');
+      else track.classList.remove('on');
+      track.nextSibling.textContent = light ? ' 亮色' : ' 暗色';
+    }
+    function toggleTheme() {
+      light = !light;
+      localStorage.setItem('theme', light ? 'light' : 'dark');
+      applyTheme();
+    }
+
+    // ── 自动刷新 ──
+    let autoRefreshTimer = null;
+    function applyRefreshToggle() {
+      const track = document.getElementById('toggle-refresh');
+      if (autoRefreshTimer) track.classList.add('on');
+      else track.classList.remove('on');
+    }
+    function toggleAutoRefresh() {
+      if (autoRefreshTimer) {
+        clearInterval(autoRefreshTimer);
+        autoRefreshTimer = null;
+      } else {
+        refresh();
+        autoRefreshTimer = setInterval(refresh, 3000);
+      }
+      applyRefreshToggle();
+    }
+
+    // 实时时钟
+    function updateLiveClock() {
+      document.getElementById('clock-live').textContent = new Date().toLocaleTimeString('zh-CN');
+    }
+    setInterval(updateLiveClock, 1000);
+    updateLiveClock();
+
+    // 启动时检查配置并应用功能开关
+    async function init() {
+      try {
+        const res = await fetch('admin/api/config');
+        if (res.ok) {
+          configData = await res.json();
+          applyConfigFlags();
+        }
+      } catch (e) {
+        // 配置文件不可用，忽略（不影响支点/任务查看）
+      }
+      refresh();
+    }
+    init();
   </script>
 </body>
 

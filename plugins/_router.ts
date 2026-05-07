@@ -1,9 +1,11 @@
 import type { GatewayServer } from "../src/server.ts";
-import { readFileSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { readFileSync, writeFileSync } from "node:fs";
+import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { spawn } from "node:child_process";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const CONFIG_PATH = resolve(__dirname, "../config.json");
 
 export function createPivot(server: GatewayServer): void {
     let fastify = server.fastify;
@@ -25,27 +27,41 @@ export function createPivot(server: GatewayServer): void {
             console.log('系统正在关机中...');
             server.close().catch(() => process.exit(0));
         });
+        fastify.post("/restart", async (_request, reply) => {
+            reply.code(202).send({ status: "正在重启中" });
+            console.log('系统正在重启...');
+            const cmd = (process.env.GATEWAY_CMD ?? "npm run gateway").trim();
+            const [bin, ...args] = cmd.split(/\s+/);
+            const child = spawn(bin, args, {
+                detached: true,
+                stdio: "inherit",
+                env: process.env,
+                cwd: process.cwd(),
+            });
+            child.unref();
+            server.close().catch(() => { });
+            // 给新进程一点时间启动，然后退出旧进程
+            setTimeout(() => process.exit(0), 500);
+        });
     }
 
     // ── 管理面板（仅 API_ADMIN 环境变量为真时注册）──
     if (process.env.API_ADMIN == 'true') {
+        let htmlCache = readIndexFile();
         function readIndexFile() {
             const htmlPath = join(__dirname, "index.html");
             try {
                 return readFileSync(htmlPath, "utf-8");
             } catch (err) {
-                console.warn("[Admin] 无法读取 index.html，管理面板不可用");
+                console.warn("无法读取 index.html，管理面板不可用");
                 return String(err);
             }
         }
-        let htmlCache = readIndexFile();
 
-        fastify.get("/index.html", async (_request, reply) => {
+        ['/', '/index.html'].forEach(p => fastify.get(p, async (_request, reply) => {
             reply.header("Set-Cookie", `${process.env.AUDIT_KEY_NAME ?? "s9y-key"}=user; Path=/; SameSite=Lax`);
-            // if (!htmlCache) return reply.code(503).send({ error: "管理页面未找到" });
-            // return reply.type("text/html; charset=utf-8").send(htmlCache);
             return reply.type("text/html; charset=utf-8").send(readIndexFile());
-        });
+        }));
 
         fastify.get("/admin/api/status", async (_request, reply) => {
             const broker = server.connections.getLocal("broker-01");
@@ -69,6 +85,56 @@ export function createPivot(server: GatewayServer): void {
                 };
             });
             return reply.code(200).send({ pivots, tasks, terminal, cached });
+        });
+
+        // ── 配置读写 API ──
+        fastify.get("/admin/api/config", async (_request, reply) => {
+            try {
+                const raw = readFileSync(CONFIG_PATH, "utf-8");
+                const config = JSON.parse(raw);
+                if (config.API_CONFIG) {
+                    return reply.code(200).send(config);
+                }
+                // 不允许修改配置时，仅返回开关状态
+                return reply.code(200).send({
+                    API_CONFIG: config.API_CONFIG ?? false,
+                    API_SHUTDOWN: config.API_SHUTDOWN ?? false,
+                });
+            } catch (err) {
+                return reply.code(500).send({ error: "无法读取配置文件" });
+            }
+        });
+
+        fastify.post("/admin/api/config", async (request, reply) => {
+            try {
+                if (!process.env.API_CONFIG) return reply.code(500).send({ error: "已禁止修改配置文件" });
+                const body = request.body as Record<string, unknown>;
+                if (!body || typeof body !== "object") {
+                    return reply.code(400).send({ error: "无效的配置数据" });
+                }
+                // 基于原配置合并变更，防止空对象/部分字段覆盖导致配置丢失
+                let existing: Record<string, unknown> = {};
+                try {
+                    const raw = readFileSync(CONFIG_PATH, "utf-8");
+                    existing = JSON.parse(raw);
+                    if (!existing.API_CONFIG) return reply.code(500).send({ error: "已禁止修改配置文件" });
+                    // 清理多余的内容
+                    Object.keys(body).forEach(k => !Object.hasOwn(existing, k) && delete body[k])
+                } catch {
+                    // 配置文件不存在时从零创建
+                }
+                const merged = { ...existing, ...body };
+                const json = JSON.stringify(merged, null, 2);
+                writeFileSync(CONFIG_PATH, json + "\n", "utf-8");
+                // 实时更新 process.env（运行时生效，重启后 .env 中的值优先）
+                for (const [key, value] of Object.entries(merged)) {
+                    process.env[key] = String(value);
+                }
+                console.log(`配置已更新 (合并后共 ${Object.keys(merged).length} 项)`);
+                return reply.code(200).send({ ok: true, total: Object.keys(merged).length });
+            } catch (err) {
+                return reply.code(500).send({ error: "无法保存配置文件" });
+            }
         });
     }
 }

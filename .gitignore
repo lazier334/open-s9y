@@ -70,6 +70,9 @@ web_modules/
 .env.*
 !.env.example
 
+# Configuration file
+config.json
+
 # parcel-bundler cache (https://parceljs.org/)
 .cache
 .parcel-cache
@@ -137,7 +140,8 @@ dist
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
-agent-input.txt
+
+# Other files
 examples
 test
 .claude

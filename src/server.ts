@@ -112,11 +112,24 @@ export class GatewayServer implements GatewayAPI {
   /** 启动 HTTP 服务器监听 */
   async listen(port?: number): Promise<string> {
     await scanAndRegister(this);
-    const address = await this.fastify.listen({
-      port: port ?? 3000,
-      host: "0.0.0.0",
-    });
-    return address;
+    const maxRetries = 5;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const address = await this.fastify.listen({
+          port: port,
+          host: "0.0.0.0",
+        });
+        return address;
+      } catch (err) {
+        if (attempt < maxRetries) {
+          console.warn(`端口 ${port} 被占用，1秒后重试 (${attempt}/${maxRetries})...`);
+          await new Promise((r) => setTimeout(r, 1000));
+        } else {
+          throw err;
+        }
+      }
+    }
+    throw new Error(`端口 ${port} 启动失败`);
   }
 
   /** 关闭服务器 */

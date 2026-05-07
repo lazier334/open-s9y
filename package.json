@@ -16,10 +16,10 @@
   "engines": {
     "node": ">=24.0.0"
   },
-  "main": "src/agent.ts",
+  "main": "src/index.ts",
   "scripts": {
-    "start": "node --env-file=.env agent.ts",
-    "dev": "node --env-file=.env agent.ts --dev",
+    "start": "npm i && node --env-file=.env  --experimental-strip-types src/index.ts",
+    "dev": "node --env-file=.env  --experimental-strip-types src/index.ts --dev",
     "gateway": "node --env-file=.env --experimental-strip-types src/index.ts",
     "examples": "node  --env-file=.env --experimental-strip-types examples/runner.ts"
   },

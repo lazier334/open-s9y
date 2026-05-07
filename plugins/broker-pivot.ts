@@ -82,9 +82,9 @@ export class BrokerPivot extends BasePivot {
   }
 
   async connect(): Promise<void> {
-    console.log(`[Broker] 已注册: ${this.options.pivotId}`);
+    console.log(`已注册: ${this.options.pivotId}`);
     console.log(
-      `[Broker] 配置: timeout=${BROKER_DEFAULT_TIMEOUT}ms maxRetries=${BROKER_MAX_RETRIES} resultTTL=${BROKER_RESULT_TTL}ms`,
+      `配置: timeout=${BROKER_DEFAULT_TIMEOUT}ms maxRetries=${BROKER_MAX_RETRIES} resultTTL=${BROKER_RESULT_TTL}ms`,
     );
   }
 
@@ -165,7 +165,7 @@ export class BrokerPivot extends BasePivot {
       case "broker:progress":
         return this._handleProgress(message);
       default:
-        throw new Error(`[Broker] 未知协议: ${protocol ?? "(无)"}`);
+        throw new Error(`未知协议: ${protocol ?? "(无)"}`);
     }
   }
 
@@ -174,7 +174,7 @@ export class BrokerPivot extends BasePivot {
   private async _handleSubmit(message: Message): Promise<unknown> {
     const { taskId, data, workerId, capabilities, timeout, maxRetries } = message.payload ?? {};
 
-    if (!taskId) throw new Error("[Broker] submit 缺少 taskId");
+    if (!taskId) throw new Error("submit 缺少 taskId");
 
     // 幂等：已存在的任务直接返回当前状态
     const existing = this.tasks.get(taskId);
@@ -205,7 +205,7 @@ export class BrokerPivot extends BasePivot {
     };
 
     this.tasks.set(taskId, task);
-    console.log(`[Broker] task=${taskId} 状态: (new) → pending`);
+    console.log(`task=${taskId} 状态: (new) → pending`);
 
     // 查找目标执行者
     let targetWorkerId: string;
@@ -213,10 +213,10 @@ export class BrokerPivot extends BasePivot {
       targetWorkerId = workerId;
     } else if (capabilities?.length) {
       const found = this._findWorkerByCapabilities(capabilities, task.failedWorkerIds);
-      if (!found) throw new Error(`[Broker] task=${taskId} 无可用执行者支持能力: ${capabilities.join(",")}`);
+      if (!found) throw new Error(`task=${taskId} 无可用执行者支持能力: ${capabilities.join(",")}`);
       targetWorkerId = found;
     } else {
-      throw new Error("[Broker] submit 需要指定 workerId 或 capabilities");
+      throw new Error("submit 需要指定 workerId 或 capabilities");
     }
 
     task.workerId = targetWorkerId;
@@ -227,12 +227,12 @@ export class BrokerPivot extends BasePivot {
 
     if (isCompliant) {
       // 合规执行者：异步转发 + 启动超时
-      console.log(`[Broker] task=${taskId} 执行者=${targetWorkerId} 合规 (支持进度上报)`);
+      console.log(`task=${taskId} 执行者=${targetWorkerId} 合规 (支持进度上报)`);
       await this._forwardToWorker(task, targetWorkerId, message);
       this._startTimeout(taskId);
     } else {
       // 非合规执行者：同步等待结果
-      console.log(`[Broker] task=${taskId} 执行者=${targetWorkerId} 非合规 (同步模式)`);
+      console.log(`task=${taskId} 执行者=${targetWorkerId} 非合规 (同步模式)`);
       this._startTimeout(taskId);
       this._forwardNonCompliant(taskId, targetWorkerId, message);
     }
@@ -264,7 +264,7 @@ export class BrokerPivot extends BasePivot {
 
   private async _handleQuery(message: Message): Promise<unknown> {
     const { taskId, peek } = message.payload ?? {};
-    if (!taskId) throw new Error("[Broker] query 缺少 taskId");
+    if (!taskId) throw new Error("query 缺少 taskId");
 
     const task = this.tasks.get(taskId);
     if (!task) {
@@ -326,7 +326,7 @@ export class BrokerPivot extends BasePivot {
     if (cached) {
       clearTimeout(cached.timer);
       this.resultCache.delete(taskId);
-      console.log(`[Broker] task=${taskId} 结果已被发布者取走，缓存已清理`);
+      console.log(`task=${taskId} 结果已被发布者取走，缓存已清理`);
       return cached.result;
     }
     return null;
@@ -336,17 +336,17 @@ export class BrokerPivot extends BasePivot {
 
   private async _handleProgress(message: Message): Promise<unknown> {
     const { taskId, status, progress, result, error } = message.payload ?? {};
-    if (!taskId) throw new Error("[Broker] progress 缺少 taskId");
+    if (!taskId) throw new Error("progress 缺少 taskId");
 
     const task = this.tasks.get(taskId);
     if (!task) {
-      console.warn(`[Broker] task=${taskId} 收到进度上报但任务不存在（可能已过期）`);
+      console.warn(`task=${taskId} 收到进度上报但任务不存在（可能已过期）`);
       return { acknowledged: false, reason: "任务不存在" };
     }
 
     // 只接受处于合法状态的任务的进度更新
     if (task.status === "completed" || task.status === "dead_letter") {
-      console.warn(`[Broker] task=${taskId} 已是终态(${task.status})，忽略进度上报`);
+      console.warn(`task=${taskId} 已是终态(${task.status})，忽略进度上报`);
       return { acknowledged: false, reason: `任务已是终态: ${task.status}` };
     }
 
@@ -360,7 +360,7 @@ export class BrokerPivot extends BasePivot {
     } else if (status === "failed") {
       this._handleWorkerFailure(taskId, error ?? "执行者上报失败");
     } else {
-      throw new Error(`[Broker] progress 不支持的状态: ${status}`);
+      throw new Error(`progress 不支持的状态: ${status}`);
     }
 
     return { acknowledged: true, taskId, status: task.status };
@@ -430,7 +430,7 @@ export class BrokerPivot extends BasePivot {
     };
 
     await this.gateway.routeTo(workerId, forwardMsg);
-    console.log(`[Broker] task=${task.taskId} 已转发给执行者: ${workerId}`);
+    console.log(`task=${task.taskId} 已转发给执行者: ${workerId}`);
   }
 
   /** 转发任务给非合规执行者（同步等待） */
@@ -463,7 +463,7 @@ export class BrokerPivot extends BasePivot {
         } else {
           // 任务可能在超时后被移除，重新缓存结果
           this._cacheResult(taskId, result);
-          console.log(`[Broker] task=${taskId} 非合规执行者返回结果（任务已清理，仅缓存）`);
+          console.log(`task=${taskId} 非合规执行者返回结果（任务已清理，仅缓存）`);
         }
       })
       .catch((err) => {
@@ -472,7 +472,7 @@ export class BrokerPivot extends BasePivot {
         if (this.tasks.has(taskId)) {
           this._handleWorkerFailure(taskId, errorMsg);
         } else {
-          console.warn(`[Broker] task=${taskId} 非合规执行者失败（任务已清理）: ${errorMsg}`);
+          console.warn(`task=${taskId} 非合规执行者失败（任务已清理）: ${errorMsg}`);
         }
       });
   }
@@ -513,7 +513,7 @@ export class BrokerPivot extends BasePivot {
     if (!task) return;
     if (task.status === "completed" || task.status === "dead_letter") return;
 
-    console.log(`[Broker] task=${taskId} 超时 (retry ${task.retryCount + 1}/${task.maxRetries})`);
+    console.log(`task=${taskId} 超时 (retry ${task.retryCount + 1}/${task.maxRetries})`);
 
     // 标记当前执行者失败
     if (task.workerId) {
@@ -526,7 +526,7 @@ export class BrokerPivot extends BasePivot {
       this._retryTask(task);
     } else {
       this._transitionStatus(task, "dead_letter", undefined, `重试耗尽 (${task.retryCount}/${task.maxRetries})`);
-      console.log(`[Broker] task=${taskId} 重试耗尽，进入死信队列`);
+      console.log(`task=${taskId} 重试耗尽，进入死信队列`);
     }
   }
 
@@ -536,7 +536,7 @@ export class BrokerPivot extends BasePivot {
     const alternative = this._findAlternativeWorker(task);
     if (!alternative) {
       this._transitionStatus(task, "dead_letter", undefined, "无可用的替代执行者");
-      console.log(`[Broker] task=${task.taskId} 无可用的替代执行者，进入死信队列`);
+      console.log(`task=${task.taskId} 无可用的替代执行者，进入死信队列`);
       return;
     }
 
@@ -569,11 +569,11 @@ export class BrokerPivot extends BasePivot {
     task.retryCount++;
 
     if (task.retryCount < task.maxRetries) {
-      console.log(`[Broker] task=${taskId} 执行者上报失败: ${error} (retry ${task.retryCount}/${task.maxRetries})`);
+      console.log(`task=${taskId} 执行者上报失败: ${error} (retry ${task.retryCount}/${task.maxRetries})`);
       this._retryTask(task);
     } else {
       this._transitionStatus(task, "dead_letter", undefined, `最终失败: ${error}`);
-      console.log(`[Broker] task=${taskId} 重试耗尽，进入死信队列: ${error}`);
+      console.log(`task=${taskId} 重试耗尽，进入死信队列: ${error}`);
     }
   }
 
@@ -592,7 +592,7 @@ export class BrokerPivot extends BasePivot {
     task.completedAt = Date.now();
     this._cacheResult(taskId, result);
 
-    console.log(`[Broker] task=${taskId} 完成，结果已缓存等待发布者取走`);
+    console.log(`task=${taskId} 完成，结果已缓存等待发布者取走`);
   }
 
   private _cacheResult(taskId: string, result: unknown): void {
@@ -602,7 +602,7 @@ export class BrokerPivot extends BasePivot {
 
     const timer = setTimeout(() => {
       this.resultCache.delete(taskId);
-      console.log(`[Broker] task=${taskId} 缓存已过期`);
+      console.log(`task=${taskId} 缓存已过期`);
     }, BROKER_RESULT_TTL);
 
     this.resultCache.set(taskId, {
@@ -634,9 +634,9 @@ export class BrokerPivot extends BasePivot {
     });
 
     console.log(
-      `[Broker] task=${task.taskId} 状态: ${oldStatus} → ${newStatus}` +
-        (task.workerId ? ` (worker=${task.workerId})` : "") +
-        (extra ? ` [${extra}]` : ""),
+      `task=${task.taskId} 状态: ${oldStatus} → ${newStatus}` +
+      (task.workerId ? ` (worker=${task.workerId})` : "") +
+      (extra ? ` [${extra}]` : ""),
     );
 
     // 进入死信时清超时、记录错误
