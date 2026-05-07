@@ -40,6 +40,10 @@ export async function scanAndRegister(
         continue;
       }
       const pivot = factory(server);
+      if (!pivot) {
+        console.warn(`跳过 ${file}: createPivot 没有产出 Pivot`);
+        continue;
+      }
       await pivot.connect();
       server.registerLocalPivot(pivot.options.pivotId, pivot);
       pivots.push(pivot);

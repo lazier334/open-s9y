@@ -13,12 +13,6 @@ export class HttpAdapter {
   constructor(server: GatewayServer) { this.server = server; }
 
   register(fastify: FastifyInstance): void {
-    // ── 第1层：网络级 cookie 认证 ──
-    fastify.addHook('preHandler', async (request, reply) => {
-      if (!await this.server.connections.authenticateRequest(request)) {
-        return reply.code(401).send({ error: '身份验证失败' });
-      }
-    });
 
     // ── POST /register ──
     fastify.post<{ Body: Partial<PivotInfo> & { pivotId?: string } }>(
@@ -207,15 +201,6 @@ export class HttpAdapter {
       });
       return reply.code(200).send(result);
     });
-
-    // ── GET /shutdown ──（仅 ALLOW_SHUTDOWN 环境变量为真时注册）
-    if (process.env.ALLOW_SHUTDOWN == 'true') {
-      fastify.get("/shutdown", async (_request, reply) => {
-        reply.code(202).send({ status: "正在关机中" });
-        console.log('系统正在关机中...');
-        this.server.close().catch(() => process.exit(0));
-      });
-    }
   }
 
   // ─── 管道中继辅助 ───

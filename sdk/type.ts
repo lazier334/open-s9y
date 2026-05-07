@@ -22,6 +22,8 @@ export interface MessagePayload {
     priceTable?: string;
     /** 同步模式：网关等待目标支点响应后直接返回 */
     sync?: boolean;
+    /** 查询时仅查看不消费缓存 */
+    peek?: boolean;
 }
 
 export interface Message {
