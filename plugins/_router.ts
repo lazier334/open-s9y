@@ -1,3 +1,4 @@
+import type { FastifyRequest, FastifyReply } from "fastify";
 import type { GatewayServer } from "../src/server.ts";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
@@ -10,15 +11,24 @@ const CONFIG_PATH = resolve(__dirname, "../config.json");
 export function createPivot(server: GatewayServer): void {
     let fastify = server.fastify;
     // ── 第1层：网络级 cookie 认证 ──
-    fastify.addHook('preHandler', async (request, reply) => {
-        const path = (request.raw.url ?? "").split('?').shift() ?? "";
-        // 管理页面及其 API 跳过认证
-        if (path === "/index.html" || path.startsWith("/admin/")) return;
-        // 进行验证
+    // 身份验证函数
+    let authenticateRequest = async (request: FastifyRequest, reply: FastifyReply) => {
         if (!await server.connections.authenticateRequest(request)) {
             return reply.code(401).send({ error: '身份验证失败' });
         }
-    });
+    };
+    if (process.env.API_ADMIN == 'true') {
+        const authenticateRequestOrigin = authenticateRequest;
+        authenticateRequest = async (request: FastifyRequest, reply: FastifyReply) => {
+            const path = (request.url ?? "").split('?').shift() ?? "";
+            // 首页页面跳过认证
+            if (path === '/') return reply.redirect('/index.html');
+            if (path !== "/index.html") return;
+            // 进行验证
+            return await authenticateRequestOrigin(request, reply);
+        }
+    }
+    fastify.addHook('preHandler', authenticateRequest);
 
     // ── GET /shutdown ──（仅 API_SHUTDOWN 环境变量为真时注册）
     if (process.env.API_SHUTDOWN == 'true') {

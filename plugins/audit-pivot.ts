@@ -42,7 +42,8 @@ export class AuditPivot extends BasePivot {
         };
 
         if (!request) throw new Error("Audit: 缺少 request");
-        const session = getCookie(request.headers, KEY_NAME) || '';
+        const search = new URLSearchParams(request.url?.substring(request.url.indexOf('?')) ?? '');
+        const session = search.get(KEY_NAME) || getCookie(request.headers, KEY_NAME) || '';
 
         if (message.type == 'authenticateRequest') {
             return this.authenticate(session);

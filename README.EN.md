@@ -20,10 +20,9 @@
 The `open-s9y project` is an implementation program of the `s9y protocol`.
 
 ## Quick Start open-s9y
-1. Ensure [NodeJs](https://nodejs.org/) is installed
-2. Clone the repository: `git clone https://github.com/lazier334/open-s9y`
-3. Configure your AI information in `.env`, the main configuration item is `API_KEY`
-4. Start the program: `npm start`
+1. Ensure [NodeJs](https://nodejs.org/) is installed  
+2. [Download the repository code](https://github.com/lazier334/open-s9y/archive/refs/heads/main.zip) (you can also use tools like [Git](https://git-scm.com/install/windows) to clone the code: `git clone https://github.com/lazier334/open-s9y`)  
+3. Start the program using the terminal: `npm start`
 
 ## What is s9y?
 

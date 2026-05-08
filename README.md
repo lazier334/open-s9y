@@ -20,10 +20,9 @@
 `open-s9y项目`是`s9y协议`的一个实现程序
 
 ## 快速启动 open-s9y
-1. 确保已经安装 [NodeJs](https://nodejs.org/)
-2. 下载仓库 `git clone https://github.com/lazier334/open-s9y`
-3. 配置 `.env` 中你的ai信息，主要配置项 `API_KEY`
-4. 启动程序 `npm start`
+1. 确保已经安装 [NodeJs](https://nodejs.org/) 
+2. [下载仓库代码](https://github.com/lazier334/open-s9y/archive/refs/heads/main.zip) (也可以使用 [Git](https://git-scm.com/install/windows) 等工具拉取代码: `git clone https://github.com/lazier334/open-s9y`)
+3. 使用终端来启动程序 `npm start`
 
 ## s9y 是什么？
 

@@ -24,6 +24,8 @@ export interface MessagePayload {
     sync?: boolean;
     /** 查询时仅查看不消费缓存 */
     peek?: boolean;
+    // 允许任意其他属性
+    [key: string]: unknown;
 }
 
 export interface Message {
