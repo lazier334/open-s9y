@@ -11,7 +11,8 @@
 
 <p align="center">
   <a href="#philosophy">哲学</a> •
-  <a href="#features">特性</a>
+  <a href="#features">特性</a> •
+  <a href="https://github.com/lazier334/open-s9y-auto" target="_blank">open-s9y-auto</a>
 </p>
 
 ---
@@ -19,9 +20,12 @@
 ## open-s9y 和 s9y 的关系是什么？
 `open-s9y项目`是`s9y协议`的一个实现程序
 
+## open-s9y 和 open-s9y-auto 的关系是什么？
+[open-s9y](https://github.com/lazier334/open-s9y) 是 <a href="https://github.com/lazier334/open-s9y-auto" target="_blank">open-s9y-auto</a> 的基础设施程序。如需了解更多相关内容，请查看 <a href="https://github.com/lazier334/open-s9y-auto" target="_blank">open-s9y-auto 项目</a>
+
 ## 快速启动 open-s9y
-1. 确保已经安装 [NodeJs](https://nodejs.org/) 
-2. [下载仓库代码](https://github.com/lazier334/open-s9y/archive/refs/heads/main.zip) (也可以使用 [Git](https://git-scm.com/install/windows) 等工具拉取代码: `git clone https://github.com/lazier334/open-s9y`)
+1. 确保已经安装 <a href="https://nodejs.org/" target="_blank">NodeJs</a> 
+2. [下载仓库代码](https://github.com/lazier334/open-s9y/archive/refs/heads/main.zip) (也可以使用 <a href="https://git-scm.com/install/windows" target="_blank">Git</a> 等工具拉取代码: `git clone https://github.com/lazier334/open-s9y`)
 3. 使用终端来启动程序 `npm start`
 
 ## s9y 是什么？

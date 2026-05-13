@@ -62,14 +62,6 @@ export interface Status {
 }
 
 /**
- * /pivots 接口的 Query 参数类型
- */
-export interface PivotsQuery {
-    /** 按能力标签筛选（AND 逻辑，逗号分隔），缺省返回全部 */
-    capabilities?: string;
-}
-
-/**
  * /pipe 接口的 Query 参数类型
  * - GET 和 POST 共用
  * - targetPivotId 仅在 GET 时有效，用于显式指定目标支点、跳过 TaskRouter

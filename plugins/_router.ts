@@ -1,12 +1,126 @@
 import type { FastifyRequest, FastifyReply } from "fastify";
+import type { Message } from "../sdk/type.ts";
 import type { GatewayServer } from "../src/server.ts";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONFIG_PATH = resolve(__dirname, "../config.json");
+
+// ─── /pipe 管道辅助函数 ───
+
+function pipeWaiterKey(protocol: string, taskId: string): string {
+    return `${taskId}:${protocol}`;
+}
+
+function setPipeWaiter(server: GatewayServer, protocol: string, taskId: string, reply: FastifyReply): void {
+    const key = pipeWaiterKey(protocol, taskId);
+    const timer = setTimeout(() => {
+        server.pipeWaiters.delete(key);
+        if (!reply.sent) {
+            reply.code(504).send({ error: "超时" });
+        }
+    }, server.requestTimeout);
+
+    reply.raw.on("close", () => {
+        clearTimeout(timer);
+        server.pipeWaiters.delete(key);
+    });
+
+    server.pipeWaiters.set(key, { reply, timer });
+}
+
+async function resolvePipeWaiter(
+    server: GatewayServer,
+    protocol: string,
+    taskId: string,
+    request: FastifyRequest
+): Promise<boolean> {
+    const key = pipeWaiterKey(protocol, taskId);
+    const waiter = server.pipeWaiters.get(key);
+
+    if (!waiter) {
+        console.log("无等待者:", key);
+        return false;
+    }
+
+    const targetRaw = waiter.reply.raw;
+    const sourceRaw = request.raw;
+
+    if (targetRaw.writableEnded || targetRaw.destroyed) {
+        console.log("目标连接已关闭");
+        server.pipeWaiters.delete(key);
+        return false;
+    }
+
+    const statusCode =
+        parseInt(request.headers["x-pipe-status"] as string) || 200;
+    let headers: Record<string, string> = {};
+    try {
+        const headerStr = request.headers["x-pipe-headers"] as string;
+        if (headerStr) {
+            headers = JSON.parse(headerStr);
+        }
+    } catch (e) {
+        console.warn("解析 headers 失败:", e);
+    }
+
+    waiter.reply.hijack();
+    targetRaw.writeHead(statusCode, {
+        ...headers,
+        "Transfer-Encoding": "chunked",
+        "X-Pipe-Protocol": protocol,
+        "X-Accel-Buffering": "no",
+    });
+
+    return new Promise((resolve, reject) => {
+        let settled = false;
+        const cleanup = (success: boolean) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(waiter.timer);
+            server.pipeWaiters.delete(key);
+            success ? resolve(true) : reject(new Error("Stream failed"));
+        };
+
+        sourceRaw.pipe(targetRaw);
+
+        sourceRaw.on("end", () => {
+            targetRaw.end();
+            cleanup(true);
+        });
+
+        sourceRaw.on("error", (err) => {
+            console.error("源流错误:", err.message);
+            targetRaw.destroy();
+            cleanup(false);
+        });
+
+        targetRaw.on("error", (err) => {
+            console.error("目标流错误:", err.message);
+            sourceRaw.destroy();
+            cleanup(false);
+        });
+
+        targetRaw.on("close", () => {
+            console.log("目标关闭（客户端断开）");
+            sourceRaw.destroy();
+            cleanup(false);
+        });
+
+        waiter.timer = setTimeout(() => {
+            console.error("管道传输超时");
+            sourceRaw.destroy();
+            targetRaw.destroy();
+            cleanup(false);
+        }, server.requestTimeout * 10);
+    });
+}
+
+// ─── 主入口 ───
 
 export function createPivot(server: GatewayServer): void {
     let fastify = server.fastify;
@@ -23,7 +137,7 @@ export function createPivot(server: GatewayServer): void {
             const path = (request.url ?? "").split('?').shift() ?? "";
             // 首页页面跳过认证
             if (path === '/') return reply.redirect('/index.html');
-            if (path !== "/index.html") return;
+            if (path === "/index.html") return;
             // 进行验证
             return await authenticateRequestOrigin(request, reply);
         }
@@ -147,4 +261,74 @@ export function createPivot(server: GatewayServer): void {
             }
         });
     }
+
+    // ── GET /pipe ── 管道消费端（挂起等待流数据）
+    fastify.get("/pipe", async (request: FastifyRequest, reply: FastifyReply) => {
+        const q = request.query as Record<string, string>;
+        const protocol = q.protocol ?? "result";
+        const taskId = q.taskId;
+        let targetPivotId = q.targetPivotId;
+
+        if (!targetPivotId) {
+            targetPivotId = server.connections.getPivotId(taskId);
+        }
+
+        if (!targetPivotId) {
+            return reply.code(404).send({ error: "目标支点未找到" });
+        }
+        if (!server.connections.has(targetPivotId)) {
+            return reply.code(503).send({ error: "支点离线" });
+        }
+
+        setPipeWaiter(server, protocol, taskId, reply);
+
+        const msg: Message = {
+            senderId: "gateway",
+            targetId: targetPivotId,
+            type: "pipe",
+            payload: { taskId, protocol },
+            traceId: randomUUID(),
+            timestamp: Date.now(),
+        };
+
+        try {
+            await server.routeTo(targetPivotId, msg);
+            reply.hijack();
+        } catch (err) {
+            const key = pipeWaiterKey(protocol, taskId);
+            const waiter = server.pipeWaiters.get(key);
+            if (waiter) {
+                clearTimeout(waiter.timer);
+                server.pipeWaiters.delete(key);
+                if (!reply.sent) {
+                    reply.code(502).send({ error: err instanceof Error ? err.message : String(err) });
+                }
+            }
+        }
+    });
+
+    // ── POST /pipe ── 管道生产端（推送流数据给消费端）
+    fastify.post("/pipe", {
+        config: { rawBody: true },
+        bodyLimit: 1024 ** 3,
+        preParsing: async (request, _reply, payload) => {
+            request.headers["content-type"] = "application/octet-stream";
+            return payload;
+        },
+    }, async (request: FastifyRequest, reply: FastifyReply) => {
+        const q = request.query as Record<string, string>;
+        const protocol = q.protocol ?? "result";
+        const taskId = q.taskId;
+
+        if (!taskId) {
+            return reply.code(400).send({ error: "Missing taskId" });
+        }
+
+        const resolved = await resolvePipeWaiter(server, protocol, taskId, request);
+        if (!resolved) {
+            return reply.code(409).send({ error: "消费方不存在" });
+        }
+
+        return { status: "delivered" };
+    });
 }

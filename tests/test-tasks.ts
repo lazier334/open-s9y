@@ -4,18 +4,18 @@
  * 用法:
  *   # 先启动网关和测试执行者（各一个终端）
  *   API_ADMIN=true node --experimental-strip-types src/index.ts
- *   node --experimental-strip-types test/test-worker.ts
+ *   node --experimental-strip-types tests/test-worker.ts
  *
  *   # 运行全部场景
- *   node --experimental-strip-types test/runner.ts
+ *   node --experimental-strip-types tests/test-tasks.ts
  *
  *   # 只跑一个场景
- *   node --experimental-strip-types test/runner.ts happy
- *   node --experimental-strip-types test/runner.ts dead
- *   node --experimental-strip-types test/runner.ts caps
- *   node --experimental-strip-types test/runner.ts cache
- *   node --experimental-strip-types test/runner.ts result
- *   node --experimental-strip-types test/runner.ts get
+ *   node --experimental-strip-types tests/test-tasks.ts happy
+ *   node --experimental-strip-types tests/test-tasks.ts dead
+ *   node --experimental-strip-types tests/test-tasks.ts caps
+ *   node --experimental-strip-types tests/test-tasks.ts cache
+ *   node --experimental-strip-types tests/test-tasks.ts result
+ *   node --experimental-strip-types tests/test-tasks.ts get
  *
  * 场景说明:
  *   happy — 合规执行者完整流程（进度 0/33/67/100% → 完成 → 消费缓存）
@@ -39,7 +39,7 @@ function log(tag: string, msg: string): void {
 }
 
 async function push(msg: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const res = await fetch(`${GATEWAY_URL}/push`, {
+  const res = await fetch(`${GATEWAY_URL}/s9y`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Cookie: AUTH_COOKIE },
     body: JSON.stringify(msg),
@@ -415,7 +415,11 @@ async function main() {
   console.log("=".repeat(60));
 
   try {
-    await fetch(`${GATEWAY_URL}/pivots`, { headers: { Cookie: AUTH_COOKIE } });
+    await fetch(`${GATEWAY_URL}/s9y`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: AUTH_COOKIE },
+      body: JSON.stringify({ senderId: "test", type: "pivots", payload: {}, traceId: crypto.randomUUID(), timestamp: Date.now() }),
+    });
   } catch {
     console.error("❌ 网关不可达！请先: API_ADMIN=true node --experimental-strip-types src/index.ts");
     process.exit(1);

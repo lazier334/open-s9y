@@ -63,7 +63,7 @@ async function testHttp(
     const fetchOpts: RequestInit = { method, headers, signal: controller.signal };
     if (opts.body !== undefined) fetchOpts.body = JSON.stringify(opts.body);
 
-    // /register 是长轮询端点，认证通过后会挂起。用短超时打断：
+    // GET /s9y 是长轮询端点，认证通过后会挂起。用短超时打断：
     // - 被 abort → 认证已通过（服务端接受了连接并挂起等待）
     // - 返回 401 → 认证拦截
     if (opts.longPoll) {
@@ -174,7 +174,11 @@ async function main() {
 
   // 连通性检查
   try {
-    const res = await fetch(`${GATEWAY_URL}/pivots`);
+    const res = await fetch(`${GATEWAY_URL}/s9y`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ senderId: "test", type: "pivots", payload: {}, traceId: crypto.randomUUID(), timestamp: Date.now() }),
+    });
     if (res.status === 401) {
       console.log("  网关已启动，认证 hook 处于活跃状态\n");
     } else if (res.ok) {
@@ -199,22 +203,26 @@ async function main() {
     timestamp: Date.now(),
   };
 
-  const registerBody = {
-    pivotId: "test-pivot",
-    type: "tool" as const,
-    capabilities: ["test"],
+  const registerPath = "/s9y?pivotId=test-pivot&type=tool&capabilities=test";
+
+  const pivotsBody = {
+    senderId: "test-runner",
+    type: "pivots",
+    payload: {},
+    traceId: crypto.randomUUID(),
+    timestamp: Date.now(),
   };
 
   // 无 cookie → 401
-  await testHttp("POST /push     无 cookie → 401", "POST", "/push", { body: pushBody }, (s) => s === 401, "401");
-  await testHttp("POST /register 无 cookie → 401", "POST", "/register", { body: registerBody, longPoll: true }, (s) => s === 401, "401");
-  await testHttp("GET  /pivots   无 cookie → 401", "GET", "/pivots", {}, (s) => s === 401, "401");
+  await testHttp("POST /s9y           无 cookie → 401", "POST", "/s9y", { body: pushBody }, (s) => s === 401, "401");
+  await testHttp("GET  /s9y           无 cookie → 401", "GET", registerPath, { longPoll: true }, (s) => s === 401, "401");
+  await testHttp("POST /s9y (pivots)  无 cookie → 401", "POST", "/s9y", { body: pivotsBody }, (s) => s === 401, "401");
 
   // 带 session cookie → 通过
   const cookie = "s9y-key=tool";
-  await testHttp("POST /push     带 cookie → 通过", "POST", "/push", { cookie, body: pushBody }, (s) => s !== 401, "非401");
-  await testHttp("POST /register 带 cookie → 通过", "POST", "/register", { cookie, body: registerBody, longPoll: true }, (s) => s !== 401, "非401");
-  await testHttp("GET  /pivots   带 cookie → 通过", "GET", "/pivots", { cookie }, (s) => s !== 401, "非401");
+  await testHttp("POST /s9y           带 cookie → 通过", "POST", "/s9y", { cookie, body: pushBody }, (s) => s !== 401, "非401");
+  await testHttp("GET  /s9y           带 cookie → 通过", "GET", registerPath, { cookie, longPoll: true }, (s) => s !== 401, "非401");
+  await testHttp("POST /s9y (pivots)  带 cookie → 通过", "POST", "/s9y", { cookie, body: pivotsBody }, (s) => s !== 401, "非401");
 
   // ─── WebSocket 认证 ───
 

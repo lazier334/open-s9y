@@ -12,16 +12,20 @@
 
 <p align="center">
   <a href="#philosophy">Philosophy</a> •
-  <a href="#features">Features</a>
+  <a href="#features">Features</a> •
+  <a href="https://github.com/lazier334/open-s9y-auto" target="_blank">open-s9y-auto</a>
 </p>
 
 ---
 ## What is the relationship between `open-s9y` and s9y?
 The `open-s9y project` is an implementation program of the `s9y protocol`.
 
+## What is the relationship between open-s9y and open-s9y-auto?
+[open-s9y](https://github.com/lazier334/open-s9y) is the infrastructure program for <a href="https://github.com/lazier334/open-s9y-auto" target="_blank">open-s9y-auto</a>. For more related content, please refer to the <a href="https://github.com/lazier334/open-s9y-auto" target="_blank">open-s9y-auto project</a>.
+
 ## Quick Start open-s9y
-1. Ensure [NodeJs](https://nodejs.org/) is installed  
-2. [Download the repository code](https://github.com/lazier334/open-s9y/archive/refs/heads/main.zip) (you can also use tools like [Git](https://git-scm.com/install/windows) to clone the code: `git clone https://github.com/lazier334/open-s9y`)  
+1. Ensure <a href="https://nodejs.org/" target="_blank">NodeJs</a> is installed  
+2. [Download the repository code](https://github.com/lazier334/open-s9y/archive/refs/heads/main.zip) (you can also use tools like <a href="https://git-scm.com/install/windows" target="_blank">Git</a> to clone the code: `git clone https://github.com/lazier334/open-s9y`)  
 3. Start the program using the terminal: `npm start`
 
 ## What is s9y?
