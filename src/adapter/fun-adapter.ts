@@ -1,7 +1,7 @@
 import type { BasePivot } from "../../sdk/base-pivot-sdk.ts";
 import type { GatewayServer } from "../server.ts";
 import { resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { readdirSync } from "node:fs";
 
 export interface PivotFactory {
@@ -33,7 +33,7 @@ export async function scanAndRegister(
   const pivots: BasePivot[] = [];
   for (const file of files) {
     try {
-      const mod = await import(resolve(dir, file));
+      const mod = await import(pathToFileURL(resolve(dir, file)).href);
       const factory = mod.createPivot as PivotFactory | undefined;
       if (typeof factory !== "function") {
         console.warn(`跳过 ${file}: 没有导出 createPivot`);
