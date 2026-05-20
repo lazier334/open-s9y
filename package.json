@@ -1,6 +1,6 @@
 {
   "name": "open-s9y",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "这是一个ai的 Singularity 项目",
   "homepage": "https://github.com/lazier334/open-s9y#readme",
   "bugs": {
@@ -18,7 +18,8 @@
   },
   "main": "src/index.ts",
   "scripts": {
-    "start": "npm i && node --env-file=.env  --experimental-strip-types src/index.ts"
+    "start": "npm i && node --env-file=.env --experimental-strip-types src/index.ts",
+    "dev": "node --env-file=.env.development --experimental-strip-types src/index.ts"
   },
   "dependencies": {
     "fastify": "^5.8.4",

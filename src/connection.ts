@@ -1,6 +1,6 @@
 import type { Message, PivotInfo, Status } from "../sdk/type.ts";
 import type { FastifyReply, FastifyRequest } from "fastify";
-import type { BasePivot } from "../sdk/base-pivot-sdk.ts";
+import { BasePivot } from "../sdk/base-pivot-sdk.ts";
 import type { IncomingMessage } from "node:http";
 import type { WebSocket } from "ws";
 import { randomUUID } from "node:crypto";
@@ -100,7 +100,21 @@ export class ConnectionManager {
 
   /** 注册本地支点（进程内插件） */
   addLocal(pivotId: string, pivot: BasePivot): void {
+    console.log('Local 支点注册', pivotId);
     this.localPivots.set(pivotId, pivot);
+  }
+
+  /** 移除本地支点 */
+  removeLocal(pivotId: string): boolean {
+    const pivot = this.getLocal(pivotId);
+    if (!pivot) return false;
+
+    console.info('Local 支点移除', pivotId);
+    // 类似 this._disconnect() 函数，但是不需要缓存和清理定时器，只需要 删除记录 + 清理路由 + 通知
+    this.localPivots.delete(pivotId);
+    this.removePivotRoutes(pivotId);
+    this.handlers.onDisconnect?.(pivotId);
+    return true;
   }
 
   /** 获取本地支点实例 */
