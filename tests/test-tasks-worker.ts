@@ -1,5 +1,5 @@
-import { BasePivot } from "../sdk/base-pivot-sdk.ts";
 import type { Message } from "../sdk/type.ts";
+import { BasePivot } from "../sdk/base-pivot-sdk.ts";
 
 /**
  * 测试用执行者支点

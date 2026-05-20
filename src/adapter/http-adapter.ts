@@ -1,6 +1,6 @@
 import type { Message, PivotInfo } from "../../sdk/type.ts";
-import type { FastifyInstance, FastifyReply } from "fastify";
 import type { GatewayServer } from "../server.ts";
+import type { FastifyInstance } from "fastify";
 
 /**
  * HTTP 协议适配器

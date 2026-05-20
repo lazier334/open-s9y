@@ -1,5 +1,5 @@
-import { createWriteStream, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
+import { createWriteStream, mkdirSync } from "node:fs";
 
 /**
  * 读取命令行配置  

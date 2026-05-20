@@ -1,9 +1,9 @@
+import type { Message, PivotType } from "../sdk/type.ts";
 import type { Connection } from "../src/connection.ts";
 import type { GatewayServer } from "../src/server.ts";
-import { BasePivot } from "../sdk/base-pivot-sdk.ts";
 import type { IncomingMessage } from "node:http";
 import type { FastifyRequest } from "fastify";
-import type { Message, PivotType } from "../sdk/type.ts";
+import { BasePivot } from "../sdk/base-pivot-sdk.ts";
 
 const KEY_NAME = process.env.AUDIT_KEY_NAME ?? "s9y-key";
 const AUTH_KEYS = (process.env.AUDIT_AUTH_KEYS ?? "user,agent,system,gateway,tool,other")

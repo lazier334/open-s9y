@@ -1,5 +1,5 @@
-import { WebSocket } from "ws";
 import type { Message, PivotType } from "./type.ts";
+import { WebSocket } from "ws";
 
 export interface BasePivotOptions {
     gatewayUrl: string;

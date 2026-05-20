@@ -1,9 +1,9 @@
 import type { FastifyRequest, FastifyReply } from "fastify";
 import type { GatewayServer } from "../src/server.ts";
-import { readFileSync, writeFileSync } from "node:fs";
-import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
+import { join, dirname, resolve } from "node:path";
+import { readFileSync, writeFileSync } from "node:fs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONFIG_PATH = resolve(__dirname, "../config.json");

@@ -2,8 +2,8 @@ import type { Message, PivotInfo, Status } from "../sdk/type.ts";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { BasePivot } from "../sdk/base-pivot-sdk.ts";
 import type { IncomingMessage } from "node:http";
-import { randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
+import { randomUUID } from "node:crypto";
 
 export interface Connection {
   socket?: WebSocket;

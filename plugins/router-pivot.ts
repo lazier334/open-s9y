@@ -1,6 +1,6 @@
 import type { GatewayServer } from "../src/server.ts";
-import { BasePivot } from "../sdk/base-pivot-sdk.ts";
 import type { Message } from "../sdk/type.ts";
+import { BasePivot } from "../sdk/base-pivot-sdk.ts";
 
 interface PivotRecord {
   pivotId: string;
