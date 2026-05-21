@@ -81,7 +81,7 @@ export function initLogger(): void {
         org.log(line.trimEnd());
     };
 
-    console.log = (...args: unknown[]) => write("info", args);
+    console.log = (...args: unknown[]) => write("log", args);
     console.info = (...args: unknown[]) => write("info", args);
     console.warn = (...args: unknown[]) => write("warn", args);
     console.error = (...args: unknown[]) => write("error", args);

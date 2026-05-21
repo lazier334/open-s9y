@@ -100,7 +100,7 @@ export class ConnectionManager {
 
   /** 注册本地支点（进程内插件） */
   addLocal(pivotId: string, pivot: BasePivot): void {
-    console.log('Local 支点注册', pivotId);
+    console.info('Local 支点注册', pivotId);
     this.localPivots.set(pivotId, pivot);
   }
 
@@ -201,7 +201,7 @@ export class ConnectionManager {
     };
     await this.auditConnection(connection, request);
     this.connections.set(pivotId, connection);
-    console.log('WS 支点注册', pivotId);
+    console.info('WS 支点注册', pivotId);
     this._startTimers(pivotId, connection);
     this.handlers.onConnect?.(pivotId, connection);
     return connection;
@@ -220,7 +220,7 @@ export class ConnectionManager {
 
     await this.auditConnection(connection, request);
     this.connections.set(pivotId, connection);
-    console.log('HTTP 支点注册', pivotId);
+    console.info('HTTP 支点注册', pivotId);
     this.handlers.onConnect?.(pivotId, connection);
     return connection;
   }

@@ -250,19 +250,17 @@ export class GatewayServer implements GatewayAPI {
     }
 
     const targetPivotId = await this._resolveTargetPivotId(message);
-
+    message.targetId = targetPivotId;
+    console.info('✉', message);
     if (message.payload?.sync) {
-      const response = await this.requestTo(targetPivotId, {
-        ...message,
-        targetId: targetPivotId,
-      });
+      const response = await this.requestTo(targetPivotId, message);
       if (message.payload?.taskId) {
         this.connections.setRoute(message.payload.taskId, targetPivotId);
       }
       return response;
     }
 
-    await this.routeTo(targetPivotId, { ...message, targetId: targetPivotId });
+    await this.routeTo(targetPivotId, message);
     if (message.payload?.taskId) {
       this.connections.setRoute(message.payload.taskId, targetPivotId);
     }
