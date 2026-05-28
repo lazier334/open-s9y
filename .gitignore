@@ -145,3 +145,4 @@ vite.config.ts.timestamp-*
 examples
 test
 .claude
+.other
