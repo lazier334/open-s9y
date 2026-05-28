@@ -1,6 +1,5 @@
 import type { Message, PivotInfo } from "../../sdk/type.ts";
 import type { GatewayServer } from "../server.ts";
-import type { FastifyInstance } from "fastify";
 
 /**
  * HTTP 协议适配器
@@ -42,9 +41,9 @@ function parseQuery(url: string): Record<string, unknown> {
 
 export class HttpAdapter {
   private server: GatewayServer;
-  constructor(server: GatewayServer) { this.server = server; }
-
-  register(fastify: FastifyInstance): void {
+  constructor(server: GatewayServer) {
+    this.server = server;
+    const { fastify } = server;
 
     // ── GET /s9y ── 支点注册（长轮询）
     fastify.get("/s9y", async (request, reply) => {

@@ -6,9 +6,6 @@ import Fastify from "fastify";
 import { WebSocketServer } from "ws";
 import { randomUUID } from "node:crypto";
 import { ConnectionManager } from "./connection.ts";
-import { WsAdapter } from "./adapter/ws-adapter.ts";
-import { HttpAdapter } from "./adapter/http-adapter.ts";
-import { scanAndRegister } from "./adapter/fun-adapter.ts";
 
 type PendingRequest = {
   resolve: (value: unknown) => void;
@@ -75,9 +72,6 @@ export class GatewayServer implements GatewayAPI {
       }
     );
 
-    // 委托协议处理给适配器
-    new WsAdapter(this).setup(this.wss);
-    new HttpAdapter(this).register(this.fastify);
   }
 
   /** 注册本地 pivot（同一进程内直接调用） */
@@ -111,7 +105,6 @@ export class GatewayServer implements GatewayAPI {
 
   /** 启动 HTTP 服务器监听 */
   async listen(port?: number): Promise<string> {
-    await scanAndRegister(this);
     const maxRetries = 5;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {

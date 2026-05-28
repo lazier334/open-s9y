@@ -15,28 +15,33 @@ export interface PivotFactory {
 }
 
 /**
+ * 本地函数插件适配器
  * 扫描 plugins/ 目录，动态加载并注册所有本地支点
  *
  * 约定：每个插件文件需导出 `createPivot` 工厂函数
  *   export function createPivot(server: GatewayServer): BasePivot
  */
-export async function scanAndRegister(
-    server: GatewayServer,
-    pluginDir?: string
-): Promise<BasePivot[]> {
-    const pivotList = Object.values(await loadFunPivots(server, pluginDir));
-    console.info(`已注册${pivotList.length}个本地支点`);
-    if ((process.env.NODE_ENV ?? '').startsWith('dev')) {
-        console.info(`当前为 dev 环境，已开启支点热重载，检测间隔 ${reloadStepTime}ms`);
-        const dingtime = () => {
-            setTimeout(async () => {
-                await loadFunPivots(server, pluginDir, true);
-                dingtime();
-            }, reloadStepTime);
-        };
-        dingtime();
+export class FunAdapter {
+    private server: GatewayServer;
+    constructor(server: GatewayServer) {
+        this.server = server;
+        void this._scanAndRegister();
     }
-    return pivotList;
+
+    private async _scanAndRegister(): Promise<void> {
+        const pivotList = Object.values(await loadFunPivots(this.server));
+        console.info(`已注册${pivotList.length}个本地支点`);
+        if ((process.env.NODE_ENV ?? '').startsWith('dev')) {
+            console.info(`当前为 dev 环境，已开启支点热重载，检测间隔 ${reloadStepTime}ms`);
+            const dingtime = () => {
+                setTimeout(async () => {
+                    await loadFunPivots(this.server, undefined, true);
+                    dingtime();
+                }, reloadStepTime);
+            };
+            dingtime();
+        }
+    }
 }
 
 /**

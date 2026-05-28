@@ -1,5 +1,5 @@
 import type { Message, PivotInfo } from "../../sdk/type.ts";
-import type { WebSocketServer, WebSocket } from "ws";
+import type { WebSocket } from "ws";
 import type { GatewayServer } from "../server.ts";
 import type { IncomingMessage } from "node:http";
 
@@ -11,10 +11,10 @@ import type { IncomingMessage } from "node:http";
  */
 export class WsAdapter {
   private server: GatewayServer;
-  constructor(server: GatewayServer) { this.server = server; }
+  constructor(server: GatewayServer) {
+    this.server = server;
 
-  setup(wss: WebSocketServer): void {
-    wss.on("connection", async (socket: WebSocket, request: IncomingMessage) => {
+    this.server.wss.on("connection", async (socket: WebSocket, request: IncomingMessage) => {
       if (!await this.server.connections.authenticateRequest(request)) {
         socket.close(1008, '身份验证失败');
         return;

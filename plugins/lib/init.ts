@@ -1,10 +1,10 @@
-import "./lib/logger.ts";
-import { readFileSync, watch } from "node:fs";
+import "./logger.ts";
+import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CONFIG_PATH = resolve(__dirname, "../config.json");
+const CONFIG_PATH = resolve(__dirname, "../../config.json");
 
 function loadConfig(): void {
   try {
