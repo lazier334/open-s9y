@@ -129,7 +129,7 @@ async function loadFunPivots(
         const pivotId = pivot.options.pivotId;
         const result = server.connections.tryRegister(pivotId);
         if (result.accepted) {
-            server.registerLocalPivot(pivotId, pivot);
+            server.connections.addLocal(pivotId, pivot);
         } else {
             console.warn(`本地支点 ${pivotId} 注册失败: ${result.reason}`);
         }

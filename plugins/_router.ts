@@ -84,7 +84,7 @@ export function createPivot(server: GatewayServer): void {
             const cached = broker && typeof (broker as any).getCachedResultsSummary === "function"
                 ? (broker as any).getCachedResultsSummary() : [];
 
-            const all = server.getAllPivots();
+            const all = server.connections.getAllPivots();
             const pivots = all.map((p) => {
                 const conn = server.connections.get(p.pivotId);
                 return {

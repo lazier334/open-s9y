@@ -64,6 +64,30 @@ export class ConnectionManager {
     this.cleanupTimer = setInterval(() => this._cleanupCache(), this.pivotCacheTTL);
   }
 
+  /** 获取所有支点信息（远程连接 + 本地 pivot） */
+  getAllPivots(): Array<{
+    pivotId: string;
+    type: string;
+    name?: string;
+    capabilities?: string[];
+  }> {
+    const result: Array<{
+      pivotId: string;
+      type: string;
+      name?: string;
+      capabilities?: string[];
+    }> = [];
+    for (const [pid, conn] of this.getAll()) {
+      result.push({
+        pivotId: pid,
+        type: conn.pivotInfo.type ?? "other",
+        name: conn.pivotInfo.name,
+        capabilities: conn.pivotInfo.capabilities,
+      });
+    }
+    return result.concat(this.getLocalPivotsInfo());
+  }
+
   /** 记录任务到支点的路由映射 */
   setRoute(taskId: string, pivotId: string): void {
     this.taskRoutes.set(taskId, pivotId);

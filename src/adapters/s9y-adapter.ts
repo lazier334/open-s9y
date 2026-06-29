@@ -21,7 +21,7 @@ export abstract class S9yAdapter {
         raw: Partial<PivotInfo> & Record<string, unknown>,
         cached?: { pivotInfo: PivotInfo }
     ): PivotInfo {
-        const rawCaps = raw.capabilities;
+        const rawCaps = raw.capabilities as string[] | string;
         const capabilities: string[] | undefined = Array.isArray(rawCaps)
             ? rawCaps.map(String)
             : typeof rawCaps === "string"
