@@ -1,5 +1,6 @@
-import type { Message, PivotInfo } from "../../sdk/type.ts";
+import type { Message } from "../../sdk/type.ts";
 import type { GatewayServer } from "../server.ts";
+import { S9yAdapter } from "./s9y-adapter.ts";
 
 /**
  * HTTP 协议适配器
@@ -39,10 +40,9 @@ function parseQuery(url: string): Record<string, unknown> {
 
 // ─── HttpAdapter ───
 
-export class HttpAdapter {
-  private server: GatewayServer;
+export class HttpAdapter extends S9yAdapter {
   constructor(server: GatewayServer) {
-    this.server = server;
+    super(server);
     const { fastify } = server;
 
     // ── GET /s9y ── 支点注册（长轮询）
@@ -55,26 +55,13 @@ export class HttpAdapter {
       };
 
       try {
-        const result = this.server.connections.tryRegister(pivotId);
+        const result = this.tryRegister(pivotId);
         if (!result.accepted) {
           return send({ error: result.reason }, 409);
         }
 
-        const cached = this.server.connections.getCache(pivotId);
-        const rawCaps = q.capabilities;
-        const capabilities: string[] | undefined = Array.isArray(rawCaps)
-          ? rawCaps.map(String)
-          : typeof rawCaps === "string"
-            ? rawCaps.split(",").map((s: string) => s.trim()).filter(Boolean)
-            : cached?.pivotInfo.capabilities;
-
-        const pivotInfo: PivotInfo = {
-          pivotId,
-          type: (q.type as PivotInfo["type"]) ?? cached?.pivotInfo.type ?? "other",
-          name: (q.name as string) ?? cached?.pivotInfo.name,
-          capabilities,
-          priceTable: (q.priceTable as string) ?? cached?.pivotInfo.priceTable,
-        };
+        const cached = this.getCached(pivotId);
+        const pivotInfo = this.buildPivotInfo(pivotId, q, cached);
         const conn = await this.server.connections.addHttp(pivotId, pivotInfo, reply, request);
         conn.send = send;
 
@@ -122,15 +109,7 @@ export class HttpAdapter {
         return reply.code(400).send({ error: "消息格式无效" });
       }
 
-      const pendingReq = this.server.pendingRequests.get(message.traceId);
-      if (pendingReq) {
-        clearTimeout(pendingReq.timer);
-        this.server.pendingRequests.delete(message.traceId);
-        if (message.payload?.error) {
-          pendingReq.reject(new Error(String(message.payload.error)));
-        } else {
-          pendingReq.resolve(message.payload?.data ?? message.payload);
-        }
+      if (this.handlePendingRequest(message)) {
         return reply.code(200).send({ status: "ok" });
       }
 

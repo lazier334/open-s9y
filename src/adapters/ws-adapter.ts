@@ -2,6 +2,7 @@ import type { Message, PivotInfo } from "../../sdk/type.ts";
 import type { WebSocket } from "ws";
 import type { GatewayServer } from "../server.ts";
 import type { IncomingMessage } from "node:http";
+import { S9yAdapter } from "./s9y-adapter.ts";
 
 /**
  * WebSocket 协议适配器
@@ -9,10 +10,9 @@ import type { IncomingMessage } from "node:http";
  * - 消息分发到 server.handleBizMessage()
  * - 响应回传、错误处理
  */
-export class WsAdapter {
-  private server: GatewayServer;
+export class WsAdapter extends S9yAdapter {
   constructor(server: GatewayServer) {
-    this.server = server;
+    super(server);
 
     this.server.wss.on("connection", async (socket: WebSocket, request: IncomingMessage) => {
       if (!await this.server.connections.authenticateRequest(request)) {
@@ -40,35 +40,21 @@ export class WsAdapter {
             const info = message.payload as unknown as PivotInfo & { pivotId?: string };
             pivotId = info.pivotId ?? message.senderId;
 
-            const result = this.server.connections.tryRegister(pivotId);
+            const result = this.tryRegister(pivotId);
             if (!result.accepted) {
               socket.close(1008, result.reason);
               return;
             }
 
-            const cached = this.server.connections.getCache(pivotId);
-            const pivotInfo: PivotInfo = {
-              pivotId,
-              type: info.type ?? cached?.pivotInfo.type ?? "other",
-              name: info.name ?? cached?.pivotInfo.name,
-              capabilities: info.capabilities ?? cached?.pivotInfo.capabilities,
-              priceTable: info.priceTable ?? cached?.pivotInfo.priceTable,
-            };
+            const cached = this.getCached(pivotId);
+            const pivotInfo = this.buildPivotInfo(pivotId, info, cached);
 
             await this.server.connections.addWs(pivotId, pivotInfo, socket, request);
             return;
           }
 
           // 响应消息处理（通过 traceId 关联）
-          const pendingReq = this.server.pendingRequests.get(message.traceId);
-          if (pendingReq) {
-            clearTimeout(pendingReq.timer);
-            this.server.pendingRequests.delete(message.traceId);
-            if (message.payload?.error) {
-              pendingReq.reject(new Error(String(message.payload.error)));
-            } else {
-              pendingReq.resolve(message.payload?.data ?? message.payload);
-            }
+          if (this.handlePendingRequest(message)) {
             return;
           }
 

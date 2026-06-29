@@ -1,5 +1,6 @@
 import type { BasePivot } from "../../sdk/base-pivot-sdk.ts";
 import type { GatewayServer } from "../server.ts";
+import { S9yAdapter } from "./s9y-adapter.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -21,10 +22,9 @@ export interface PivotFactory {
  * 约定：每个插件文件需导出 `createPivot` 工厂函数
  *   export function createPivot(server: GatewayServer): BasePivot
  */
-export class FunAdapter {
-    private server: GatewayServer;
+export class FunAdapter extends S9yAdapter {
     constructor(server: GatewayServer) {
-        this.server = server;
+        super(server);
         void this._scanAndRegister();
     }
 
@@ -85,9 +85,9 @@ async function importFunPivot(filepath: string, server: GatewayServer): Promise<
     }
 }
 /**
- * 热加载插件支点  
- * @param server 
- * @param pluginDir 
+ * 热加载插件支点
+ * @param server
+ * @param pluginDir
  */
 async function loadFunPivots(
     server: GatewayServer,
@@ -125,7 +125,14 @@ async function loadFunPivots(
     for (const key in pivots) {
         const pivot = pivots[key];
         pivotsCache[key] = pivot;
-        server.registerLocalPivot(pivot.options.pivotId, pivot);
+        // 使用与 http/ws 适配器一致的注册模式
+        const pivotId = pivot.options.pivotId;
+        const result = server.connections.tryRegister(pivotId);
+        if (result.accepted) {
+            server.registerLocalPivot(pivotId, pivot);
+        } else {
+            console.warn(`本地支点 ${pivotId} 注册失败: ${result.reason}`);
+        }
     }
 
     return pivots
