@@ -45,10 +45,14 @@ export abstract class S9yAdapter {
     }
 
     /**
-     * 获取缓存的支点信息
+     * 获取缓存的支点信息（断连但未过期的连接）
      */
-    protected getCached(pivotId: string) {
-        return this.server.connections.getCache(pivotId);
+    protected getCached(pivotId: string): { pivotInfo: PivotInfo } | undefined {
+        const conn = this.server.connections.get(pivotId);
+        if (conn && conn.disconnectAt !== undefined) {
+            return { pivotInfo: conn.pivotInfo };
+        }
+        return undefined;
     }
 
     /**

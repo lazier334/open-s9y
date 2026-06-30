@@ -7,7 +7,7 @@ import { S9yAdapter } from "./s9y-adapter.ts";
 /**
  * WebSocket 协议适配器
  * - 处理支点 WS 连接握手、心跳、register
- * - 消息分发到 server.handleBizMessage()
+ * - 消息分发到 handleBizMessage
  * - 响应回传、错误处理
  */
 export class WsAdapter extends S9yAdapter {
@@ -49,7 +49,18 @@ export class WsAdapter extends S9yAdapter {
             const cached = this.getCached(pivotId);
             const pivotInfo = this.buildPivotInfo(pivotId, info, cached);
 
-            await this.server.connections.addWs(pivotId, pivotInfo, socket, request);
+            // WS 的 send 函数：通过 WebSocket 发送消息
+            const send = async (msg: Message): Promise<unknown> => {
+              if (socket.readyState !== 1) {
+                throw new Error("WebSocket 未连接");
+              }
+              socket.send(JSON.stringify(msg));
+              return undefined;
+            };
+
+            await this.server.connections.addConnection(pivotId, pivotInfo, send, "ws", {
+              enableHeartbeat: true,
+            });
             return;
           }
 
@@ -92,13 +103,13 @@ export class WsAdapter extends S9yAdapter {
 
       socket.on("close", () => {
         if (pivotId) {
-          this.server.connections.removeWs(pivotId);
+          this.server.connections.removeConnection(pivotId);
         }
       });
 
       socket.on("error", () => {
         if (pivotId) {
-          this.server.connections.removeWs(pivotId);
+          this.server.connections.removeConnection(pivotId);
         }
       });
     });

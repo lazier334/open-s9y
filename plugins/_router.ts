@@ -76,7 +76,7 @@ export function createPivot(server: GatewayServer): void {
         }));
 
         fastify.get("/admin/api/status", async (_request, reply) => {
-            const broker = server.connections.getLocal("broker-01");
+            const broker = server.connections.get("broker-01");
             const tasks = broker && typeof (broker as any).getTasksSummary === "function"
                 ? (broker as any).getTasksSummary() : [];
             const terminal = broker && typeof (broker as any).getTerminalTasksSummary === "function"
@@ -84,18 +84,14 @@ export function createPivot(server: GatewayServer): void {
             const cached = broker && typeof (broker as any).getCachedResultsSummary === "function"
                 ? (broker as any).getCachedResultsSummary() : [];
 
-            const all = server.connections.getAllPivots();
-            const pivots = all.map((p) => {
-                const conn = server.connections.get(p.pivotId);
-                return {
-                    pivotId: p.pivotId,
-                    type: p.type,
-                    name: p.name,
-                    capabilities: p.capabilities,
-                    adapterType: conn?.socket ? "ws" : conn?.reply ? "http" : "fun",
-                    status: conn?.status ?? null,
-                };
-            });
+            const all = server.connections.getAll();
+            const pivots = Array.from(all.entries()).map(([pid, conn]) => ({
+                pivotId: pid,
+                type: conn.pivotInfo.type,
+                name: conn.pivotInfo.name,
+                capabilities: conn.pivotInfo.capabilities,
+                status: conn.status,
+            }));
             return reply.code(200).send({ pivots, tasks, terminal, cached });
         });
 

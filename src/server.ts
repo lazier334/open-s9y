@@ -1,4 +1,4 @@
-import type { FastifyInstance, FastifyReply } from "fastify";
+import type { FastifyInstance } from "fastify";
 import type { Message, GatewayAPI } from "../sdk/type.ts";
 import type { Server } from "node:http";
 import Fastify from "fastify";
@@ -127,22 +127,16 @@ export class GatewayServer implements GatewayAPI {
     // ─── GatewayAPI 实现 ───
 
     /**
-     * 向指定支点发送消息
-     * - 本地支点直接调用 onTask
-     * - 远程支点通过连接发送，连接未就绪时自动重试（最多 5 秒）
+     * 向指定支点发送消息（异步，不等待响应）
+     * 连接未就绪时自动重试（最多 5 秒）
      */
     async routeTo(pivotId: string, message: Message): Promise<void> {
-        const local = this.connections.getLocal(pivotId);
-        if (local) {
-            local.onTask(message).catch(() => { });
-            return;
-        }
-
         const trySend = (): boolean => {
             const conn = this.connections.get(pivotId);
             if (!conn) return false;
             try {
-                conn.send(message);
+                // 发送消息，不等待响应
+                conn.send(message).catch(() => { });
                 return true;
             } catch (err) {
                 console.error("消息发送失败, 准备重试:", err);
@@ -176,15 +170,17 @@ export class GatewayServer implements GatewayAPI {
 
     /**
      * 向指定支点请求并等待响应
-     * - 本地支点直接调用 onTask 返回结果
-     * - 远程支点通过 pendingRequests 等待异步响应
+     * - Fun 模式：直接调用 send，同步返回结果
+     * - WS/HTTP 模式：通过 pendingRequests 等待异步响应
      */
-    requestTo(pivotId: string, message: Message): Promise<unknown> {
-        const local = this.connections.getLocal(pivotId);
-        if (local) {
-            return Promise.resolve(local.onTask(message));
+    async requestTo(pivotId: string, message: Message): Promise<unknown> {
+        const conn = this.connections.get(pivotId);
+        if (conn) {
+            // 统一使用 send 方法，支持同步返回结果
+            return conn.send(message);
         }
 
+        // 连接不存在，等待连接建立后重试
         return new Promise((resolve, reject) => {
             const timer = setTimeout(() => {
                 if (this.pendingRequests.has(message.traceId)) {
@@ -202,7 +198,7 @@ export class GatewayServer implements GatewayAPI {
         });
     }
 
-    // ─── 业务消息处理（委托给 MessageHandler） ───
+    // ─── 业务消息处理 ───
 
     /**
      * 统一处理业务消息
@@ -212,25 +208,7 @@ export class GatewayServer implements GatewayAPI {
      */
     async handleBizMessage(message: Message): Promise<unknown> {
         if (message.type === "pivots") {
-            const required = message.payload?.capabilities ?? [];
-            const all = this.connections.getAll();
-            const remote = Array.from(all.entries())
-                .filter(([_, conn]) => required.length === 0 || required.every((c: string) => conn.pivotInfo.capabilities?.includes(c)))
-                .map(([pid, conn]) => ({
-                    pivotId: pid,
-                    type: conn.pivotInfo.type,
-                    name: conn.pivotInfo.name,
-                    capabilities: conn.pivotInfo.capabilities,
-                    adapterType: conn.socket ? "ws" as const : "http" as const,
-                    status: conn.status,
-                }));
-            const local = this.connections.getLocalPivotsInfo()
-                .filter((p) => required.length === 0 || required.every((c: string) => p.capabilities?.includes(c)))
-                .map((p) => ({
-                    ...p,
-                    adapterType: "fun" as const,
-                }));
-            return { pivots: [...remote, ...local] };
+            return this._handlePivotsQuery(message);
         }
 
         const targetPivotId = await this._resolveTargetPivotId(message);
@@ -250,6 +228,25 @@ export class GatewayServer implements GatewayAPI {
             this.connections.setRoute(message.payload.taskId, targetPivotId);
         }
         return { status: "accepted", taskId: message.payload?.taskId };
+    }
+
+    /** 查询支点列表 */
+    private async _handlePivotsQuery(message: Message): Promise<unknown> {
+        const required = message.payload?.capabilities ?? [];
+        const all = this.connections.getAll();
+
+        const pivots = Array.from(all.entries())
+            .filter(([_, conn]) =>
+                required.length === 0 || required.every((c: string) => conn.pivotInfo.capabilities?.includes(c))
+            ).map(([pid, conn]) => ({
+                pivotId: pid,
+                type: conn.pivotInfo.type,
+                name: conn.pivotInfo.name,
+                capabilities: conn.pivotInfo.capabilities,
+                status: conn.status,
+            }));
+
+        return { pivots };
     }
 
     /**

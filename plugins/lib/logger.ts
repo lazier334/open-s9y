@@ -1,6 +1,25 @@
 import { dirname } from "node:path";
 import { createWriteStream, mkdirSync } from "node:fs";
 
+const LogColor = {
+    Reset: '\x1b[0m',
+    Red: '\x1b[31m',
+    Green: '\x1b[32m',
+    Yellow: '\x1b[33m',
+    Blue: '\x1b[34m',
+    Magenta: '\x1b[35m',
+    Cyan: '\x1b[36m',
+    White: '\x1b[37m',
+    Gray: '\x1b[90m',
+    BrightRed: '\x1b[91m',
+    BrightGreen: '\x1b[92m',
+    BrightYellow: '\x1b[93m',
+    BrightBlue: '\x1b[94m',
+    BrightMagenta: '\x1b[95m',
+    BrightCyan: '\x1b[96m',
+    BrightWhite: '\x1b[97m'
+};
+
 /**
  * 读取命令行配置  
  * 如果是使用npm启动, 可以这样携带 `npm run start -- AA=123 BB=参数BB`  
@@ -74,11 +93,19 @@ export function initLogger(): void {
         process.once("SIGTERM", cleanup);
     }
 
+    const getLevelColor = (lv: string) => {
+        switch (lv.toLowerCase()) {
+            case 'info': return LogColor.Green;
+            case 'warn': return LogColor.Yellow;
+            case 'error': return LogColor.Red;
+            default: return LogColor.Reset;
+        }
+    };
     const write = (level: string, args: unknown[]) => {
-        const line = `[${level.toUpperCase()}] ${format(...args)}`;
+        const line = `[${level.toUpperCase().padStart(5)}] ${format(...args)}`;
         stream?.write(line);
         // 终端输出用原始方法
-        org.log(line.trimEnd());
+        org.log(getLevelColor(level) + line.trimEnd() + LogColor.Reset);
     };
 
     console.log = (...args: unknown[]) => write("log", args);

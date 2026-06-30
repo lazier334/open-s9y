@@ -37,7 +37,6 @@ function parseQuery(url: string): Record<string, unknown> {
   return { ...jsonObj, ...flat };
 }
 
-
 // ─── HttpAdapter ───
 
 export class HttpAdapter extends S9yAdapter {
@@ -49,49 +48,55 @@ export class HttpAdapter extends S9yAdapter {
     fastify.get("/s9y", async (request, reply) => {
       const q = parseQuery(request.url);
       const pivotId = (q.pivotId as string) ?? "unknown";
-      const send = (msg: any, code: number = 200) => {
-        if (!reply.sent) reply.code(code).send(msg);
-        else throw new Error("当前请求已响应");
-      };
 
       try {
         const result = this.tryRegister(pivotId);
         if (!result.accepted) {
-          return send({ error: result.reason }, 409);
+          return reply.code(409).send({ error: result.reason });
         }
 
         const cached = this.getCached(pivotId);
         const pivotInfo = this.buildPivotInfo(pivotId, q, cached);
-        const conn = await this.server.connections.addHttp(pivotId, pivotInfo, reply, request);
-        conn.send = send;
 
-        return new Promise<void>((resolve, reject) => {
-          let timer: any;
-          const cleanConn = () => {
-            try {
-              clearTimeout(timer);
-              conn.send = () => { throw new Error("HTTP 连接已断开"); };
-              if (this.server.connections.get(pivotId) === conn) {
-                this.server.connections.removeHttp(pivotId);
-              }
-              resolve();
-            } catch (err) {
-              reject(err);
-            }
-          };
-          timer = setTimeout(() => {
-            send({ type: "noop" }, 200);
-            cleanConn();
-          }, this.server.requestTimeout);
-
-          conn.send = (msg: Message) => {
-            send(msg, 200);
-            cleanConn();
-          };
-          reply.raw.on("close", cleanConn);
+        // HTTP 长轮询的 send 函数：发送消息并等待客户端响应
+        let sendResolve: (value: unknown) => void;
+        let sendReject: (reason?: unknown) => void;
+        const sendPromise = new Promise<unknown>((resolve, reject) => {
+          sendResolve = resolve;
+          sendReject = reject;
         });
+
+        const send = async (msg: Message): Promise<unknown> => {
+          if (!reply.sent) {
+            reply.code(200).send(msg);
+            sendResolve(msg);
+            return msg;
+          }
+          throw new Error("HTTP 连接已响应");
+        };
+
+        const conn = await this.server.connections.addConnection(pivotId, pivotInfo, send, "http");
+
+        // 长轮询超时或断开时清理
+        const cleanConn = () => {
+          clearTimeout(timer);
+          if (this.server.connections.get(pivotId) === conn) {
+            this.server.connections.removeConnection(pivotId);
+          }
+          sendResolve(null);
+        };
+
+        // 超时返回 noop
+        const timer = setTimeout(() => {
+          send({ type: "noop" } as Message).catch(() => { });
+          cleanConn();
+        }, this.server.requestTimeout);
+
+        reply.raw.on("close", cleanConn);
+
+        return sendPromise;
       } catch (err) {
-        return send({ error: err instanceof Error ? err.message : String(err) }, 503);
+        return reply.code(503).send({ error: err instanceof Error ? err.message : String(err) });
       }
     });
 
@@ -99,16 +104,15 @@ export class HttpAdapter extends S9yAdapter {
     fastify.post("/s9y", async (request, reply) => {
       const queryObj = parseQuery(request.url);
       const body = (request.body as Record<string, unknown>) ?? {};
-
       const merged = { ...queryObj, ...body };
       delete merged._json;
-
       const message = merged as unknown as Message;
 
       if (!message?.senderId || !message?.type) {
         return reply.code(400).send({ error: "消息格式无效" });
       }
 
+      // 处理响应匹配
       if (this.handlePendingRequest(message)) {
         return reply.code(200).send({ status: "ok" });
       }
@@ -121,9 +125,7 @@ export class HttpAdapter extends S9yAdapter {
         const result = await this.server.handleBizMessage(message);
         return reply.code(202).send(result);
       } catch (err) {
-        return reply
-          .code(500)
-          .send({ error: err instanceof Error ? err.message : String(err) });
+        return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
       }
     });
   }

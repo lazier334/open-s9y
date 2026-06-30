@@ -1,4 +1,5 @@
 import type { BasePivot } from "../../sdk/base-pivot-sdk.ts";
+import type { Message } from "../../sdk/type.ts";
 import type { GatewayServer } from "../server.ts";
 import { S9yAdapter } from "./s9y-adapter.ts";
 import fs from "node:fs";
@@ -6,6 +7,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 type WarpBasePivot = BasePivot & { filepath: string }
+
 // 热重载检测间隔时间
 const reloadStepTime = 2000;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -54,6 +56,7 @@ function verifyCache(filepath: string, importFilepath: string): boolean {
     let pivot = pivotsCache[filepath];
     return pivot?.filepath == importFilepath
 }
+
 /**
  * 加载支点
  * @param filepath 支点文件路径
@@ -84,6 +87,7 @@ async function importFunPivot(filepath: string, server: GatewayServer): Promise<
         console.error(`加载插件失败: ${filename}`, err);
     }
 }
+
 /**
  * 热加载插件支点
  * @param server
@@ -118,18 +122,29 @@ async function loadFunPivots(
         if (!fs.existsSync(key) || !fs.statSync(key).isFile() || pivots[key]) {
             const pivot = pivotsCache[key];
             pivot.disconnect();
-            server.connections.removeLocal(pivot.options.pivotId);
+            server.connections.removeConnection(pivot.options.pivotId, false);
         }
     }
-    // 把新的支点合并过去
+
+    // 注册新支点（统一使用 addConnection）
     for (const key in pivots) {
         const pivot = pivots[key];
         pivotsCache[key] = pivot;
-        // 使用与 http/ws 适配器一致的注册模式
         const pivotId = pivot.options.pivotId;
+
         const result = server.connections.tryRegister(pivotId);
         if (result.accepted) {
-            server.connections.addLocal(pivotId, pivot);
+            // Fun 模式的 send：直接调用 pivot.onTask，同步返回结果
+            const send = async (message: Message): Promise<unknown> => {
+                return await pivot.onTask(message);
+            };
+            await server.connections.addConnection(pivotId, {
+                pivotId,
+                type: pivot.options.type,
+                name: pivot.options.name,
+                capabilities: pivot.options.capabilities,
+                priceTable: pivot.options.priceTable,
+            }, send, "fun");
         } else {
             console.warn(`本地支点 ${pivotId} 注册失败: ${result.reason}`);
         }
