@@ -76,7 +76,7 @@ export function createPivot(server: GatewayServer): void {
         }));
 
         fastify.get("/admin/api/status", async (_request, reply) => {
-            const broker = server.connections.get("broker-01");
+            const broker = server.connections.get("broker");
             const tasks = broker && typeof (broker as any).getTasksSummary === "function"
                 ? (broker as any).getTasksSummary() : [];
             const terminal = broker && typeof (broker as any).getTerminalTasksSummary === "function"

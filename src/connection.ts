@@ -64,12 +64,26 @@ export class ConnectionManager {
     /** 定时清理过期缓存（兜底，防止内存泄漏） */
     private cleanupTimer?: NodeJS.Timeout;
 
+    /** 构造函数 */
     constructor(options: ConnectionManagerOptions = {}, handlers: ConnectionEventHandler = {}) {
         this.heartbeatInterval = options.heartbeatInterval ?? 30_000;
         this.pivotTimeout = options.pivotTimeout ?? 60_000;
         this.pivotCacheTTL = options.pivotCacheTTL ?? 60_000;
         this.handlers = handlers;
         this.cleanupTimer = setInterval(() => this._cleanupExpiredCache(), this.pivotCacheTTL);
+    }
+
+    /** 关闭管理器，清理所有资源 */
+    close(): void {
+        if (this.cleanupTimer) {
+            clearInterval(this.cleanupTimer);
+            this.cleanupTimer = undefined;
+        }
+        for (const connection of this.connections.values()) {
+            this._clearTimers(connection);
+        }
+        this.connections.clear();
+        this.taskRoutes.clear();
     }
 
     // #region 任务路由
@@ -113,14 +127,20 @@ export class ConnectionManager {
 
     /** 尝试注册支点 */
     tryRegister(pivotId: string): { accepted: boolean; reason?: string } {
-        if (this.connections.has(pivotId)) {
+        const conn = this.connections.get(pivotId);
+        if (conn && conn.disconnectAt === undefined) {
             return { accepted: false, reason: "pivotId 已被占用" };
         }
         return { accepted: true };
     }
 
     /**
-     * 添加支点连接（重连时复用已有对象）
+     * 添加支点连接（重连时复用已有对象）  
+     * 由于重连时复用已有对象，所以可能会被攻击的方式:  
+     * 1. 先发送一个请求，将这个支点打下线（http模式接入时）  
+     * 2. 伪造这个支点接入系统  
+     * 3. 接收其他支点发送过来的任务并返回伪造的结果  
+     * 目前不对这种攻击方式做处理，可以通过增强验证系统+隔离接入来源来完成安全措施。更好的安全机制还在研究中
      * @param pivotId 支点 ID
      * @param pivotInfo 支点信息
      * @param send 消息发送函数（适配器实现），返回 Promise<unknown>
@@ -160,7 +180,7 @@ export class ConnectionManager {
         const connection = this.connections.get(pivotId);
         if (!connection) return false;
 
-        console.info('支点移除', pivotId);
+        console.warn('支点移除', pivotId);
         this._clearTimers(connection);
         // 标记为断连，保留 pivotInfo 和 status
         connection.disconnectAt = Date.now();
@@ -225,7 +245,7 @@ export class ConnectionManager {
     // #region 认证和其他方法
     // ─── 认证 ───
 
-    /** 网络认证：验证请求 */
+    /** 接入认证：验证请求 */
     async authenticateRequest(request: unknown): Promise<unknown> {
         const auditPivotId = process.env.AUDIT_PIVOT_ID ?? "audit";
         const auditConn = this.get(auditPivotId);
@@ -312,17 +332,5 @@ export class ConnectionManager {
         return conn && this._isExpired(conn) ? this.connections.delete(conn.pivotId) : false;
     }
 
-    /** 关闭管理器，清理所有资源 */
-    close(): void {
-        if (this.cleanupTimer) {
-            clearInterval(this.cleanupTimer);
-            this.cleanupTimer = undefined;
-        }
-        for (const connection of this.connections.values()) {
-            this._clearTimers(connection);
-        }
-        this.connections.clear();
-        this.taskRoutes.clear();
-    }
     // #endregion 认证和其他方法
 }

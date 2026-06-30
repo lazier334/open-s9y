@@ -72,11 +72,4 @@ export abstract class S9yAdapter {
         }
         return false;
     }
-
-    /**
-     * 统一业务消息处理
-     */
-    async handleBizMessage(message: Message): Promise<unknown> {
-        return this.server.handleBizMessage(message);
-    }
 }

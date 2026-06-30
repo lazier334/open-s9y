@@ -34,7 +34,7 @@ export class FunAdapter extends S9yAdapter {
         const pivotList = Object.values(await loadFunPivots(this.server));
         console.info(`已注册${pivotList.length}个本地支点`);
         if ((process.env.NODE_ENV ?? '').startsWith('dev')) {
-            console.info(`当前为 dev 环境，已开启支点热重载，检测间隔 ${reloadStepTime}ms`);
+            console.warn(`当前为 dev 环境，已开启fun支点热加载，检测间隔 ${reloadStepTime}ms`);
             const dingtime = () => {
                 setTimeout(async () => {
                     await loadFunPivots(this.server, undefined, true);
@@ -122,7 +122,7 @@ async function loadFunPivots(
         if (!fs.existsSync(key) || !fs.statSync(key).isFile() || pivots[key]) {
             const pivot = pivotsCache[key];
             pivot.disconnect();
-            server.connections.removeConnection(pivot.options.pivotId, false);
+            server.connections.removeConnection(pivot.options.pivotId);
         }
     }
 
@@ -133,7 +133,9 @@ async function loadFunPivots(
         const pivotId = pivot.options.pivotId;
 
         const result = server.connections.tryRegister(pivotId);
-        if (result.accepted) {
+        if (!result.accepted) {
+            console.warn(`本地支点 ${pivotId} 注册失败: ${result.reason}`);
+        } else {
             // Fun 模式的 send：直接调用 pivot.onTask，同步返回结果
             const send = async (message: Message): Promise<unknown> => {
                 return await pivot.onTask(message);
@@ -145,8 +147,6 @@ async function loadFunPivots(
                 capabilities: pivot.options.capabilities,
                 priceTable: pivot.options.priceTable,
             }, send, "fun");
-        } else {
-            console.warn(`本地支点 ${pivotId} 注册失败: ${result.reason}`);
         }
     }
 

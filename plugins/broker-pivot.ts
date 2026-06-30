@@ -43,7 +43,7 @@ interface PivotSummary {
 
 // ─── 环境变量配置 ───
 
-const BROKER_PIVOT_ID = process.env.BROKER_PIVOT_ID ?? "broker-01";
+const BROKER_PIVOT_ID = process.env.BROKER_PIVOT_ID ?? "broker";
 const BROKER_DEFAULT_TIMEOUT = Number(process.env.BROKER_DEFAULT_TIMEOUT) || 30_000;
 const BROKER_MAX_RETRIES = Number(process.env.BROKER_MAX_RETRIES) || 3;
 const BROKER_RESULT_TTL = Number(process.env.BROKER_RESULT_TTL) || 600_000; // 10分钟

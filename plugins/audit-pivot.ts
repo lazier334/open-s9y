@@ -90,7 +90,7 @@ export class AuditPivot extends BasePivot {
 }
 
 export function createPivot(_server: GatewayServer): AuditPivot {
-    const pluginPivotId = process.env.AUDIT_PIVOT_ID ?? "audit-01";
+    const pluginPivotId = process.env.AUDIT_PIVOT_ID ?? "audit";
     return new AuditPivot({
         pivotId: pluginPivotId,
         type: "system",

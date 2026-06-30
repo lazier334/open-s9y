@@ -40,14 +40,15 @@ async function main() {
     process.on("SIGTERM", shutdown);
 }
 
+/** 加载 fun 适配器的插件支点 */
 async function loadAdapters(server: GatewayServer): Promise<void> {
     const adaptersDir = path.resolve(__dirname, "./adapters");
     const files = fs.readdirSync(adaptersDir).filter(f => f.endsWith(".ts") || f.endsWith(".js"));
     for (const file of files) {
         const mod = await import(pathToFileURL(path.resolve(adaptersDir, file)).href) as Record<string, new (server: GatewayServer) => any>;
-        Object.values(mod).filter(adapter => typeof adapter === "function" && adapter.name?.endsWith("Adapter")).forEach(adapter => {
+        Object.values(mod).filter(adapter => typeof adapter === "function" && adapter.name?.endsWith("Adapter") && adapter.name != 'S9yAdapter').forEach(adapter => {
             new adapter(server);
-            console.log('已注册 Adapter:', adapter.name);
+            console.info('已注册 Adapter:', adapter.name);
         });
     }
 }

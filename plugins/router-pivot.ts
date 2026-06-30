@@ -82,7 +82,7 @@ export class RouterPivot extends BasePivot {
 
 /** fun-adapter 工厂函数 */
 export function createPivot(server: GatewayServer): RouterPivot {
-  const pluginPivotId = process.env.PLUGIN_PIVOT_ID ?? "router-01";
+  const pluginPivotId = process.env.PLUGIN_PIVOT_ID ?? "router";
   return new RouterPivot({
     pivotId: pluginPivotId,
     type: "system",
