@@ -30,16 +30,21 @@ export default async function scanAndRegister(funAdapter: FunAdapterType): Promi
 }
 
 /** 导入支点 */
-async function importFunPivot(filepath: string): Promise<Pivot | undefined> {
+async function importFunPivot(filepath: string, funAdapter: FunAdapterType,): Promise<Pivot | undefined> {
     const filename = path.basename(filepath);
     try {
         const importFilepath = pathToFileURL(filepath) + '?ts=' + fs.statSync(filepath).mtimeMs;
         // 如果已存在缓存则直接返回
         if (pivotsCache[filepath]?.filepath == importFilepath) return;
-        const sp = (await import(importFilepath)).default;
+        const factory = (await import(importFilepath)).default;
+        let sp = factory;
+        if (typeof factory == 'function') {
+            sp = await factory(funAdapter);
+            if (!sp) return console.warn(`跳过 ${filename}: 该函数没有产出 Pivot`), void 0;
+        }
+
         if (!['function', 'object'].includes(typeof sp)) {
-            console.warn(`跳过 ${filename}: 不是一个 function 或 object `);
-            return;
+            return console.warn(`跳过 ${filename}: 不是一个 function 或 object `), void 0;
         }
         return { sp, filepath: importFilepath };
     } catch (err) {
@@ -70,7 +75,7 @@ async function loadFunPivots(
     for (const file of files) {
         const filepath = path.resolve(pluginDir, file);
         // 加载插件
-        const pivot = await importFunPivot(filepath);
+        const pivot = await importFunPivot(filepath, funAdapter);
         if (pivot) pivots[filepath] = pivot;
     }
 
@@ -90,6 +95,8 @@ async function loadFunPivots(
         const pivot = pivots[key];
         pivotsCache[key] = pivot;
         // 注册新支点
+        console.log('尝试注册:', pivot.filepath);
+        console.log('尝试注册:', pivot.sp.options);
         pivot.conn = await funAdapter.register(pivot.sp);
     }
     return pivots

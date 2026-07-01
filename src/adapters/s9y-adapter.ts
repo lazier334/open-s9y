@@ -41,7 +41,7 @@ export type MessageParams = Partial<Message> & Record<string, unknown> & {
  * - 身份认证: await this.authenticateRequest(request)
  */
 export abstract class S9yAdapter {
-    protected server: GatewayServer;
+    server: GatewayServer;
 
     constructor(server: GatewayServer) {
         this.server = server;

@@ -41,6 +41,7 @@ export abstract class BasePivot {
             useWebSocket: true,
             ...options,
         };
+        if (this.options.name == undefined) this.options.name = this.options.pivotId;
     }
 
     /**
