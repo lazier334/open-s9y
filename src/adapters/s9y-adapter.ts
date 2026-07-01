@@ -1,10 +1,43 @@
-import type { Message, PivotInfo } from "../../sdk/type.ts";
+import type { FastifyRequest } from "fastify";
+import type { IncomingMessage } from "node:http";
 import type { GatewayServer } from "../server.ts";
+import type { Message, PivotInfo } from "../../sdk/type.ts";
+import type { Connection, AdapterType } from "../connection.ts";
+
+/** 适配器错误 */
+export class AdapterError extends Error {
+    public code: number;
+
+    constructor(message: string | undefined, code: number) {
+        super(message);
+        this.code = code;
+        this.name = 'AdapterError';
+    }
+}
 
 /**
- * S9y 适配器基类
- * - 提取 http/ws/fun 适配器的公共逻辑
- * - 统一 PivotInfo 构建、注册验证等操作
+ * 创建连接的参数
+ */
+export type ConnectionParams = Partial<PivotInfo> & Record<string, unknown> & {
+    pivotId: string;
+    capabilities: string[] | string | undefined;
+    send: (message: Message) => Promise<unknown>,
+    adapterType: AdapterType,
+    options?: { enableHeartbeat?: boolean }
+}
+/**
+ * 创建连接的参数
+ */
+export type MessageParams = Partial<Message> & Record<string, unknown> & {
+    pivotId: string;
+}
+
+/**
+ * S9y 适配器基类，继承者必须实现2个能力
+ * - 注册支点监听(数据出口): const conn = await this.registerConnection(cp);
+ * - 统一消息处理(数据入口): const result = await this.handleMessage(message);
+ * 可选择实现
+ * - 身份认证
  */
 export abstract class S9yAdapter {
     protected server: GatewayServer;
@@ -14,62 +47,87 @@ export abstract class S9yAdapter {
     }
 
     /**
-     * 构建 PivotInfo，优先使用传入值，回退到缓存值
+     * 身份认证
      */
-    protected buildPivotInfo(
-        pivotId: string,
-        raw: Partial<PivotInfo> & Record<string, unknown>,
-        cached?: { pivotInfo: PivotInfo }
-    ): PivotInfo {
-        const rawCaps = raw.capabilities as string[] | string;
-        const capabilities: string[] | undefined = Array.isArray(rawCaps)
-            ? rawCaps.map(String)
-            : typeof rawCaps === "string"
-                ? rawCaps.split(",").map((s: string) => s.trim()).filter(Boolean)
-                : cached?.pivotInfo.capabilities;
-
-        return {
-            pivotId,
-            type: (raw.type as PivotInfo["type"]) ?? cached?.pivotInfo.type ?? "other",
-            name: (raw.name as string) ?? cached?.pivotInfo.name,
-            capabilities,
-            priceTable: (raw.priceTable as string) ?? cached?.pivotInfo.priceTable,
-        };
+    async authenticateRequest(request: IncomingMessage | FastifyRequest) {
+        return await this.server.connections.authenticateRequest(request)
     }
 
     /**
-     * 尝试注册支点，返回是否成功
+     * 把消息交给服务器做处理
+     * @param message 
+     * @returns 
      */
-    protected tryRegister(pivotId: string): { accepted: boolean; reason?: string } {
-        return this.server.connections.tryRegister(pivotId);
+    async handleMessage(message: Message) {
+        return await this.server.handleBizMessage(message)
+    }
+
+    /**
+     * 注册支点连接
+     * @param conn 
+     */
+    async registerConnection(cp: ConnectionParams): Promise<Connection | undefined> {
+        if (typeof cp.pivotId != 'string') throw new AdapterError('pivotId 字段不存在!', 404);
+        const result = this.server.connections.tryRegister(cp.pivotId);
+        if (!result.accepted) {
+            throw new AdapterError(result.reason, 409);
+        }
+        const pivotInfo = this.createPivotInfo(cp);
+        const conn = await this.server.connections.addConnection(cp.pivotId, pivotInfo, cp.send, cp.adapterType, cp.options);
+        return conn
+    }
+
+    /**
+     * 构建 PivotInfo，优先使用传入值，回退到缓存值
+     */
+    createPivotInfo(cp: ConnectionParams): PivotInfo {
+        const cached = this.getConnectionCached(cp.pivotId);
+        const capabilities: string[] | undefined = typeof cp.capabilities == 'string' ? cp.capabilities.split(",").map((s: string) => s.trim()).filter(Boolean) : undefined;
+        const pivotInfo = {
+            pivotId: cp.pivotId,
+            type: cp.type ?? "other",
+            name: cp.name,
+            capabilities,
+            priceTable: cp.priceTable
+        };
+
+        return { ...cached?.pivotInfo, ...pivotInfo } as PivotInfo;
     }
 
     /**
      * 获取缓存的支点信息（断连但未过期的连接）
      */
-    protected getCached(pivotId: string): { pivotInfo: PivotInfo } | undefined {
-        const conn = this.server.connections.get(pivotId);
-        if (conn && conn.disconnectAt !== undefined) {
-            return { pivotInfo: conn.pivotInfo };
+    getConnectionCached(pivotId: string): { pivotInfo: PivotInfo } | undefined {
+        if (typeof pivotId == 'string') {
+            const conn = this.server.connections.get(pivotId);
+            if (conn && conn.disconnectAt !== undefined) {
+                return { pivotInfo: conn.pivotInfo };
+            }
         }
         return undefined;
     }
 
     /**
-     * 处理待响应的请求（通过 traceId 关联）
+     * 构建 PivotInfo，优先使用传入值，回退到缓存值
      */
-    protected handlePendingRequest(message: Message): boolean {
-        const pendingReq = this.server.pendingRequests.get(message.traceId);
-        if (pendingReq) {
-            clearTimeout(pendingReq.timer);
-            this.server.pendingRequests.delete(message.traceId);
-            if (message.payload?.error) {
-                pendingReq.reject(new Error(String(message.payload.error)));
-            } else {
-                pendingReq.resolve(message.payload?.data ?? message.payload);
-            }
-            return true;
+    createMessage(cp: MessageParams): Message {
+        // TODO 需要编写消息的创建方式
+        const cached = this.getConnectionCached(cp.pivotId);
+        if (!cached) throw new AdapterError('当前连接未注册, 无法创建消息!', 405);
+        const message: Message = {
+            // TODO 如果不知道发送者的信息则会被赋值 'unknow' 但是不知道任务的发送者不应该是直接拒绝消息吗？
+            senderId: cached.pivotInfo.pivotId,
+            targetId: cp.targetId,
+            targetName: cp.targetName,
+            type: cp.type || 'push',
+            payload: cp.payload || {},
+            traceId: crypto.randomUUID(),
+            timestamp: Date.now(),
         }
-        return false;
+        if (!message?.senderId || !message?.type) {
+            throw new AdapterError("消息格式无效", 400)
+        }
+        return message;
     }
+
 }

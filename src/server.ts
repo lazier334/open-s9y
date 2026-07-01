@@ -207,27 +207,57 @@ export class GatewayServer implements GatewayAPI {
      * @returns pivots 查询返回支点列表，其他返回路由结果
      */
     async handleBizMessage(message: Message): Promise<unknown> {
+        // 1. 通过 message.traceId 字段优先响应结果
+        if (this.handlePendingRequest(message)) {
+            return { status: "ok" };
+        }
+        // 2. 查询全部支点的请求
         if (message.type === "pivots") {
             return this._handlePivotsQuery(message);
         }
 
-        const targetPivotId = await this._resolveTargetPivotId(message);
-        message.targetId = targetPivotId;
-        console.info('✉', message);
+        try {
+            // 3. 查询处理这个任务的支点然后进行响应
+            const targetPivotId = await this._resolveTargetPivotId(message);
+            message.targetId = targetPivotId;
+            console.info('✉', message);
+            // 同步进行响应
+            if (message.payload?.sync) {
+                const response = await this.requestTo(targetPivotId, message);
+                if (message.payload?.taskId) {
+                    this.connections.setRoute(message.payload.taskId, targetPivotId);
+                }
+                return response;
+            }
 
-        if (message.payload?.sync) {
-            const response = await this.requestTo(targetPivotId, message);
+            // 异步进行响应
+            await this.routeTo(targetPivotId, message);
             if (message.payload?.taskId) {
                 this.connections.setRoute(message.payload.taskId, targetPivotId);
             }
-            return response;
+            return { status: "accepted", taskId: message.payload?.taskId };
+        } catch (err) {
+            // @ts-ignore 
+            return { status: "error", taskId: message.payload?.taskId, error: String(err?.message || err) };
         }
+    }
 
-        await this.routeTo(targetPivotId, message);
-        if (message.payload?.taskId) {
-            this.connections.setRoute(message.payload.taskId, targetPivotId);
+    /**
+     * 处理待响应的请求（通过 traceId 关联）
+     */
+    protected handlePendingRequest(message: Message): boolean {
+        const pendingReq = this.pendingRequests.get(message.traceId);
+        if (pendingReq) {
+            clearTimeout(pendingReq.timer);
+            this.pendingRequests.delete(message.traceId);
+            if (message.payload?.error) {
+                pendingReq.reject(new Error(String(message.payload.error)));
+            } else {
+                pendingReq.resolve(message.payload?.data ?? message.payload);
+            }
+            return true;
         }
-        return { status: "accepted", taskId: message.payload?.taskId };
+        return false;
     }
 
     /** 查询支点列表 */

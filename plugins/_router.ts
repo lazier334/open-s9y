@@ -12,25 +12,26 @@ const CONFIG_PATH = resolve(__dirname, "../config.json");
 
 export function createPivot(server: GatewayServer): void {
     let fastify = server.fastify;
+    // XXX 身份验证挪到适配层
     // ── 第1层：网络级 cookie 认证 ──
     // 身份验证函数
-    let authenticateRequest = async (request: FastifyRequest, reply: FastifyReply) => {
-        if (!await server.connections.authenticateRequest(request)) {
-            return reply.code(401).send({ error: '身份验证失败' });
-        }
-    };
-    if (process.env.API_ADMIN == 'true') {
-        const authenticateRequestOrigin = authenticateRequest;
-        authenticateRequest = async (request: FastifyRequest, reply: FastifyReply) => {
-            const path = (request.url ?? "").split('?').shift() ?? "";
-            // 首页页面跳过认证
-            if (path === '/') return reply.redirect('/index.html');
-            if (path === "/index.html") return;
-            // 进行验证
-            return await authenticateRequestOrigin(request, reply);
-        }
-    }
-    fastify.addHook('preHandler', authenticateRequest);
+    // let authenticateRequest = async (request: FastifyRequest, reply: FastifyReply) => {
+    //     if (!await server.connections.authenticateRequest(request)) {
+    //         return reply.code(401).send({ error: '身份验证失败' });
+    //     }
+    // };
+    // if (process.env.API_ADMIN == 'true') {
+    //     const authenticateRequestOrigin = authenticateRequest;
+    //     authenticateRequest = async (request: FastifyRequest, reply: FastifyReply) => {
+    //         const path = (request.url ?? "").split('?').shift() ?? "";
+    //         // 首页页面跳过认证
+    //         if (path === '/') return reply.redirect('/index.html');
+    //         if (path === "/index.html") return;
+    //         // 进行验证
+    //         return await authenticateRequestOrigin(request, reply);
+    //     }
+    // }
+    // fastify.addHook('preHandler', authenticateRequest);
 
     // ── GET /shutdown ──（仅 API_SHUTDOWN 环境变量为真时注册）
     if (process.env.API_SHUTDOWN == 'true') {

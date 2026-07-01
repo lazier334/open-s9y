@@ -1,7 +1,8 @@
-import type { Message, PivotInfo } from "../../sdk/type.ts";
 import type { WebSocket } from "ws";
-import type { GatewayServer } from "../server.ts";
+import type { Message } from "../../sdk/type.ts";
 import type { IncomingMessage } from "node:http";
+import type { GatewayServer } from "../server.ts";
+import type { ConnectionParams } from "./s9y-adapter.ts";
 import { S9yAdapter } from "./s9y-adapter.ts";
 
 /**
@@ -15,7 +16,7 @@ export class WsAdapter extends S9yAdapter {
         super(server);
 
         this.server.wss.on("connection", async (socket: WebSocket, request: IncomingMessage) => {
-            if (!await this.server.connections.authenticateRequest(request)) {
+            if (!await this.authenticateRequest(request)) {
                 socket.close(1008, '身份验证失败');
                 return;
             }
@@ -25,30 +26,17 @@ export class WsAdapter extends S9yAdapter {
             socket.on("message", async (raw: Buffer) => {
                 let message = {} as Message;
                 try {
-                    message = JSON.parse(raw.toString()) as Message;
+                    const cp = JSON.parse(raw.toString()) as ConnectionParams;
+                    message = this.createMessage(cp);
 
                     // 心跳消息
                     if (message.type === "heartbeat") {
-                        if (pivotId) {
-                            this.server.connections.updateHeartbeat(pivotId);
-                        }
+                        if (pivotId) this.server.connections.updateHeartbeat(pivotId);
                         return;
                     }
 
-                    // 注册消息
+                    // 支点注册（WebSocket）
                     if (message.type === "register") {
-                        const info = message.payload as unknown as PivotInfo & { pivotId?: string };
-                        pivotId = info.pivotId ?? message.senderId;
-
-                        const result = this.tryRegister(pivotId);
-                        if (!result.accepted) {
-                            socket.close(1008, result.reason);
-                            return;
-                        }
-
-                        const cached = this.getCached(pivotId);
-                        const pivotInfo = this.buildPivotInfo(pivotId, info, cached);
-
                         // WS 的 send 函数：通过 WebSocket 发送消息
                         const send = async (msg: Message): Promise<unknown> => {
                             if (socket.readyState !== 1) {
@@ -57,20 +45,23 @@ export class WsAdapter extends S9yAdapter {
                             socket.send(JSON.stringify(msg));
                             return undefined;
                         };
-
-                        await this.server.connections.addConnection(pivotId, pivotInfo, send, "ws", {
-                            enableHeartbeat: true,
-                        });
-                        return;
-                    }
-
-                    // 响应消息处理（通过 traceId 关联）
-                    if (this.handlePendingRequest(message)) {
+                        // 注册连接
+                        cp.send = send;
+                        cp.adapterType = 'ws';
+                        if (typeof cp.options != 'object') cp.options = {};
+                        cp.options.enableHeartbeat = true;
+                        try {
+                            const conn = await this.registerConnection(cp);
+                        } catch (err) {
+                            // @ts-ignore
+                            socket.close(1008, String(err?.message || err))
+                        }
                         return;
                     }
 
                     // 统一业务消息处理
-                    const result = await this.server.handleBizMessage(message);
+                    const result = await this.handleMessage(message);
+                    // TODO 推送消息完成后需要把结果弄成 Message 来响应
                     if (result !== undefined && message.senderId) {
                         const response: Message = {
                             senderId: "gateway",
