@@ -25,8 +25,9 @@ export type ConnectionParams = Partial<PivotInfo> & Record<string, unknown> & {
     adapterType: AdapterType,
     options?: { enableHeartbeat?: boolean }
 }
+
 /**
- * 创建连接的参数
+ * 创建消息的参数
  */
 export type MessageParams = Partial<Message> & Record<string, unknown> & {
     pivotId: string;
@@ -36,8 +37,8 @@ export type MessageParams = Partial<Message> & Record<string, unknown> & {
  * S9y 适配器基类，继承者必须实现2个能力
  * - 注册支点监听(数据出口): const conn = await this.registerConnection(cp);
  * - 统一消息处理(数据入口): const result = await this.handleMessage(message);
- * 可选择实现
- * - 身份认证
+ * 可选择自定义实现
+ * - 身份认证: await this.authenticateRequest(request)
  */
 export abstract class S9yAdapter {
     protected server: GatewayServer;
@@ -46,27 +47,18 @@ export abstract class S9yAdapter {
         this.server = server;
     }
 
-    /**
-     * 身份认证
-     */
-    async authenticateRequest(request: IncomingMessage | FastifyRequest) {
+    /** 身份认证, 可以传递任意参数, 实际类型是 unknown */
+    protected async authenticateRequest(request: IncomingMessage | FastifyRequest) {
         return await this.server.connections.authenticateRequest(request)
     }
 
-    /**
-     * 把消息交给服务器做处理
-     * @param message 
-     * @returns 
-     */
-    async handleMessage(message: Message) {
+    /** 把消息交给服务器做处理 */
+    protected async handleMessage(message: Message) {
         return await this.server.handleBizMessage(message)
     }
 
-    /**
-     * 注册支点连接
-     * @param conn 
-     */
-    async registerConnection(cp: ConnectionParams): Promise<Connection | undefined> {
+    /** 注册支点连接 */
+    protected async registerConnection(cp: ConnectionParams): Promise<Connection> {
         if (typeof cp.pivotId != 'string') throw new AdapterError('pivotId 字段不存在!', 404);
         const result = this.server.connections.tryRegister(cp.pivotId);
         if (!result.accepted) {
@@ -77,9 +69,18 @@ export abstract class S9yAdapter {
         return conn
     }
 
-    /**
-     * 构建 PivotInfo，优先使用传入值，回退到缓存值
-     */
+    /** 获取缓存的支点信息 (断连但未过期的连接) */
+    protected getConnectionCached(pivotId: string): { pivotInfo: PivotInfo } | undefined {
+        if (typeof pivotId == 'string') {
+            const conn = this.server.connections.get(pivotId);
+            if (conn && conn.disconnectAt !== undefined) {
+                return { pivotInfo: conn.pivotInfo };
+            }
+        }
+        return undefined;
+    }
+
+    /** 构建 PivotInfo 优先使用传入值, 回退到缓存值 */
     createPivotInfo(cp: ConnectionParams): PivotInfo {
         const cached = this.getConnectionCached(cp.pivotId);
         const capabilities: string[] | undefined = typeof cp.capabilities == 'string' ? cp.capabilities.split(",").map((s: string) => s.trim()).filter(Boolean) : undefined;
@@ -94,28 +95,11 @@ export abstract class S9yAdapter {
         return { ...cached?.pivotInfo, ...pivotInfo } as PivotInfo;
     }
 
-    /**
-     * 获取缓存的支点信息（断连但未过期的连接）
-     */
-    getConnectionCached(pivotId: string): { pivotInfo: PivotInfo } | undefined {
-        if (typeof pivotId == 'string') {
-            const conn = this.server.connections.get(pivotId);
-            if (conn && conn.disconnectAt !== undefined) {
-                return { pivotInfo: conn.pivotInfo };
-            }
-        }
-        return undefined;
-    }
-
-    /**
-     * 构建 PivotInfo，优先使用传入值，回退到缓存值
-     */
+    /** 构建 Message 使用传入值, pivotId需要先注册存在缓存 */
     createMessage(cp: MessageParams): Message {
-        // TODO 需要编写消息的创建方式
         const cached = this.getConnectionCached(cp.pivotId);
         if (!cached) throw new AdapterError('当前连接未注册, 无法创建消息!', 405);
         const message: Message = {
-            // TODO 如果不知道发送者的信息则会被赋值 'unknow' 但是不知道任务的发送者不应该是直接拒绝消息吗？
             senderId: cached.pivotInfo.pivotId,
             targetId: cp.targetId,
             targetName: cp.targetName,
@@ -129,5 +113,4 @@ export abstract class S9yAdapter {
         }
         return message;
     }
-
 }

@@ -1,8 +1,12 @@
 import type { Message } from "../../sdk/type.ts";
 import type { GatewayServer } from "../server.ts";
+import type { Connection } from "../connection.ts";
 import type { ConnectionParams } from "./s9y-adapter.ts";
 import type { BasePivot } from "../../sdk/base-pivot-sdk.ts";
 import { S9yAdapter, AdapterError } from "./s9y-adapter.ts";
+import usePlugins from "../../plugins/index.ts";
+
+export type SendParam = ConnectionParams & ((message: Message) => Promise<any>);
 
 export interface PivotFactory {
     (server: GatewayServer): BasePivot;
@@ -14,6 +18,7 @@ export interface PivotFactory {
 export class FunAdapter extends S9yAdapter {
     constructor(server: GatewayServer) {
         super(server);
+        usePlugins(this);
     }
 
     /** 验证支点，一般无需使用 */
@@ -34,11 +39,24 @@ export class FunAdapter extends S9yAdapter {
      * @param cp 
      * @returns 
      */
-    async register(cp: ConnectionParams): Promise<void> {
+    async register(send: SendParam): Promise<Connection> {
+        let cp = send as ConnectionParams;
+        if (typeof send == 'function') {
+            cp = { send: send, name: send.name, pivotId: send.name } as unknown as ConnectionParams;
+        }
+
         cp.adapterType = 'fun';
         cp.type = 'system';
         this.authenticate(cp);
-        const conn = await this.registerConnection(cp);
+        return await this.registerConnection(cp);
+    }
+    
+    /**
+     * 卸载支点，主要用于热更新的时候
+     * @param pivotId 
+     */
+    unregister(pivotId: string) {
+        return this.server.connections.removeConnection(pivotId)
     }
 
     /**
@@ -47,7 +65,8 @@ export class FunAdapter extends S9yAdapter {
      * @returns 
      */
     async handle(message: Message) {
-        const result = await this.handleMessage(message);
-        return result
+        return await this.handleMessage(message);
     }
 }
+
+export type FunAdapterType = FunAdapter;

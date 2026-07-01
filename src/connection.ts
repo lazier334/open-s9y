@@ -185,6 +185,7 @@ export class ConnectionManager {
         // 标记为断连，保留 pivotInfo 和 status
         connection.disconnectAt = Date.now();
         this.removePivotRoutes(pivotId);
+        // TODO 这个 onDisconnect 不清楚是干什么用的，似乎没有被创建过
         this.handlers.onDisconnect?.(pivotId);
         return true;
     }

@@ -40,7 +40,7 @@ async function main() {
     process.on("SIGTERM", shutdown);
 }
 
-/** 加载 fun 适配器的插件支点 */
+/** 加载适配器 */
 async function loadAdapters(server: GatewayServer): Promise<void> {
     const adaptersDir = path.resolve(__dirname, "./adapters");
     const files = fs.readdirSync(adaptersDir).filter(f => f.endsWith(".ts") || f.endsWith(".js"));
