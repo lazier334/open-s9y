@@ -1,8 +1,10 @@
 import type { FastifyRequest } from "fastify";
 import type { IncomingMessage } from "node:http";
 import type { GatewayServer } from "../server.ts";
-import type { Message, PivotInfo } from "../../sdk/type.ts";
-import type { Connection, AdapterType } from "../connection.ts";
+import { Message, MessagePayload, Pivot, type MessageOptions, type PivotOptions } from "../../sdk/type.ts";
+import type { Connection, AdapterType, ConnectionManager } from "../connection.ts";
+
+export * from "../../sdk/s9y-pivot-sdk.ts";
 
 /** 适配器错误 */
 export class AdapterError extends Error {
@@ -18,18 +20,15 @@ export class AdapterError extends Error {
 /**
  * 创建连接的参数
  */
-export type ConnectionParams = Partial<PivotInfo> & Record<string, unknown> & {
-    pivotId: string;
-    capabilities: string[] | string | undefined;
+export type ConnectionOptions = PivotOptions & {
     send: (message: Message) => Promise<unknown>,
     adapterType: AdapterType,
-    options?: { enableHeartbeat?: boolean }
 }
 
 /**
  * 创建消息的参数
  */
-export type MessageParams = Partial<Message> & Record<string, unknown> & {
+export type MessageParams = MessageOptions & {
     pivotId: string;
 }
 
@@ -42,37 +41,40 @@ export type MessageParams = Partial<Message> & Record<string, unknown> & {
  */
 export abstract class S9yAdapter {
     server: GatewayServer;
+    connections: ConnectionManager;
 
     constructor(server: GatewayServer) {
         this.server = server;
+        this.connections = server.connections;
     }
 
     /** 身份认证, 可以传递任意参数, 实际类型是 unknown */
     protected async authenticateRequest(request: IncomingMessage | FastifyRequest) {
-        return await this.server.connections.authenticateRequest(request)
+        return await this.connections.authenticateRequest(request)
     }
 
     /** 把消息交给服务器做处理 */
     protected async handleMessage(message: Message) {
-        return await this.server.handleBizMessage(message)
+        return await this.connections.handleBizMessageHook(message)
     }
 
     /** 注册支点连接 */
-    protected async registerConnection(cp: ConnectionParams): Promise<Connection> {
-        if (typeof cp.pivotId != 'string') throw new AdapterError('pivotId 字段不存在!', 404);
-        const result = this.server.connections.tryRegister(cp.pivotId);
+    protected async registerConnection(connOpts: ConnectionOptions): Promise<Connection> {
+        if (typeof connOpts.pivotId != 'string') throw new AdapterError('pivotId 字段不存在或不是 string 类型!', 404);
+        if (typeof connOpts.send != 'function') throw new AdapterError('send 字段不存在或不是 function 类型!', 404);
+        const result = this.connections.tryRegister(connOpts.pivotId);
         if (!result.accepted) {
             throw new AdapterError(result.reason, 409);
         }
-        const pivotInfo = this.createPivotInfo(cp);
-        const conn = await this.server.connections.addConnection(cp.pivotId, pivotInfo, cp.send, cp.adapterType, cp.options);
+        const pivotInfo = this.createPivotInfo(connOpts);
+        const conn = await this.connections.addConnection(connOpts.pivotId, pivotInfo, connOpts.send, connOpts.adapterType);
         return conn
     }
 
     /** 获取缓存的支点信息 (断连但未过期的连接) */
-    protected getConnectionCached(pivotId: string): { pivotInfo: PivotInfo } | undefined {
+    protected getConnectionCached(pivotId: string): { pivotInfo: Pivot } | undefined {
         if (typeof pivotId == 'string') {
-            const conn = this.server.connections.get(pivotId);
+            const conn = this.connections.get(pivotId);
             if (conn && conn.disconnectAt !== undefined) {
                 return { pivotInfo: conn.pivotInfo };
             }
@@ -81,35 +83,29 @@ export abstract class S9yAdapter {
     }
 
     /** 构建 PivotInfo 优先使用传入值, 回退到缓存值 */
-    createPivotInfo(cp: ConnectionParams): PivotInfo {
-        const cached = this.getConnectionCached(cp.pivotId);
-        const capabilities: string[] | undefined = typeof cp.capabilities == 'string' ? cp.capabilities.split(",").map((s: string) => s.trim()).filter(Boolean) : undefined;
-        const pivotInfo = {
-            pivotId: cp.pivotId,
-            type: cp.type ?? "other",
-            name: cp.name,
-            capabilities,
-            priceTable: cp.priceTable
-        };
-
-        return { ...cached?.pivotInfo, ...pivotInfo } as PivotInfo;
+    createPivotInfo(opts: PivotOptions): Pivot {
+        const cached = this.getConnectionCached(opts.pivotId);
+        const capabilities = opts.capabilities as string | string[] | undefined;
+        if (typeof capabilities == 'string') opts.capabilities = capabilities.split(",").map((s: string) => s.trim()).filter(Boolean);
+        const pivotInfo = new Pivot(opts as PivotOptions);
+        return { ...cached?.pivotInfo, ...pivotInfo } as Pivot;
     }
 
     /** 构建 Message 使用传入值, pivotId需要先注册存在缓存 */
-    createMessage(cp: MessageParams): Message {
-        const cached = this.getConnectionCached(cp.pivotId);
-        if (!cached) throw new AdapterError('当前连接未注册, 无法创建消息!', 405);
-        const message: Message = {
-            senderId: cached.pivotInfo.pivotId,
-            targetId: cp.targetId,
-            targetName: cp.targetName,
-            type: cp.type || 'push',
-            payload: cp.payload || {},
-            traceId: crypto.randomUUID(),
-            timestamp: Date.now(),
+    createMessage(mp: MessageParams): Message {
+        const cached = this.getConnectionCached(mp.pivotId);
+        // 环境变量控制：是否允许未注册的客户端发送消息
+        const allowUnregistered = process.env.ALLOW_UNREGISTERED_SEND === 'true';
+        if (!cached && !allowUnregistered) {
+            throw new AdapterError('当前连接未注册, 无法创建消息!', 405);
         }
-        if (!message?.senderId || !message?.type) {
-            throw new AdapterError("消息格式无效", 400)
+        const message: Message = new Message({
+            senderId: cached?.pivotInfo.pivotId ?? mp.pivotId ?? mp.senderId,
+            receiverId: mp.receiverId,
+            payload: new MessagePayload(mp.payload || {}),
+        });
+        if (!message.senderId || !message.payload.type) {
+            throw new AdapterError(`消息格式无效，缺少有效的 senderId: ${message?.senderId} 或 type: ${message?.payload?.type}`, 400)
         }
         return message;
     }

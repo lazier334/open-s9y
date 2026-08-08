@@ -1,8 +1,16 @@
-import type { Message, PivotInfo, Status } from "../sdk/type.ts";
-import { randomUUID } from "node:crypto";
+import { type FunAdapter } from "./adapters/fun-adapter.ts"
+import { Message, type Pivot, debug } from "../sdk/type.ts";
+import { FunPivot } from "../sdk/fun-pivot-sdk.ts";
+
+export const gatewayPivot = new FunPivot({
+    pivotId: 'gateway',
+    type: 'system',
+    capabilities: ['gateway'],
+    async onMessage(message: Message) { },
+});
 
 /** 适配器类型 */
-export type AdapterType = "ws" | "http" | "fun";
+export type AdapterType = "ws" | "http" | "fun" | string;
 
 /**
  * 支点连接
@@ -11,15 +19,17 @@ export type AdapterType = "ws" | "http" | "fun";
  */
 export interface Connection {
     pivotId: string;
-    pivotInfo: PivotInfo;
-    /** 状态 */
-    status: Status;
+    pivotInfo: Pivot;
     /** 适配器类型标识 */
     adapterType: AdapterType;
     /** 发送消息并等待响应（fun 模式可同步返回，ws/http 异步响应） */
     send: (message: Message) => Promise<unknown>;
     /** 断连时间戳，有值表示已断连（缓存状态） */
     disconnectAt?: number;
+    /** 连接建立时间（ms） */
+    connectedAt: number;
+    /** 最后一次心跳时间（ms） */
+    lastHeartbeatAt: number;
     /** 心跳定时器 */
     heartbeatTimer?: NodeJS.Timeout;
     /** 超时定时器 */
@@ -34,6 +44,10 @@ export interface ConnectionManagerOptions {
     pivotTimeout?: number;
     /** 断连缓存保留时间（ms），超时后自动清理 */
     pivotCacheTTL?: number;
+    /** 路由解析支点id */
+    pluginPivotId?: string;
+    /** 消息发送超时（ms），当目标支点不在线的时候等待 */
+    waitSendTimeout?: number;
 }
 
 /** 连接事件回调 */
@@ -50,10 +64,17 @@ export type ConnectionEventHandler = {
  * 统一支点管理器
  * - 管理所有类型的支点连接（WS / HTTP / Fun / 未来新协议）
  * - 心跳检测与超时断开
- * - 断线缓存：断连时保留 pivotInfo，重连时恢复状态
+ * - 断线缓存：断连时保留 Pivot，重连时恢复状态
  * - 任务路由表（taskId → pivotId），断连自动清理
  */
 export class ConnectionManager {
+    private gatewayPivot: FunPivot = gatewayPivot;
+    private gatewayConn?: Connection;
+    async setFunAdapter(funAdapter: FunAdapter) {
+        gatewayPivot.funAdapter = funAdapter;
+        // @ts-ignore 因为去导入那个类型太麻烦了，后面看看要不全部统一使用 Pivot 类型吧，类型写的太多了
+        this.gatewayConn = await funAdapter.register(this.gatewayPivot);
+    }
     // 任务路由表
     private taskRoutes = new Map<string, string>();
     private connections = new Map<string, Connection>();
@@ -63,25 +84,43 @@ export class ConnectionManager {
     private handlers: ConnectionEventHandler;
     /** 定时清理过期缓存（兜底，防止内存泄漏） */
     private cleanupTimer?: NodeJS.Timeout;
+    private pluginPivotId?: string;
+    private waitSends: Record<string, ({
+        message: Message,
+        routeTo: (conn: Connection) => Promise<void>,
+        waitTime: number,
+        resolve: (value: unknown) => void,
+        reject: (reason?: any) => void
+    })[]> = {};
+    private waitSendTimeout: number;
 
     /** 构造函数 */
     constructor(options: ConnectionManagerOptions = {}, handlers: ConnectionEventHandler = {}) {
         this.heartbeatInterval = options.heartbeatInterval ?? 30_000;
         this.pivotTimeout = options.pivotTimeout ?? 60_000;
         this.pivotCacheTTL = options.pivotCacheTTL ?? 60_000;
+        this.pluginPivotId = options.pluginPivotId;
+        this.waitSendTimeout = options.waitSendTimeout ?? 30_000;
         this.handlers = handlers;
         this.cleanupTimer = setInterval(() => this._cleanupExpiredCache(), this.pivotCacheTTL);
     }
 
     /** 关闭管理器，清理所有资源 */
     close(): void {
+        // 清理等待发送的消息
+        Object.values(this.waitSends).forEach(waitSend => {
+            waitSend.forEach(wait => wait.reject(new Error("s9y正在关闭")))
+        });
+        // 清理定时器
         if (this.cleanupTimer) {
             clearInterval(this.cleanupTimer);
             this.cleanupTimer = undefined;
         }
+        // 清理连接的定时器
         for (const connection of this.connections.values()) {
             this._clearTimers(connection);
         }
+        // 清理连接和路由
         this.connections.clear();
         this.taskRoutes.clear();
     }
@@ -127,9 +166,10 @@ export class ConnectionManager {
 
     /** 尝试注册支点 */
     tryRegister(pivotId: string): { accepted: boolean; reason?: string } {
+        if (typeof pivotId != 'string' || !pivotId) return { accepted: false, reason: `pivotId 不合法,他不是字符串或为假: "${pivotId}"` };
         const conn = this.connections.get(pivotId);
         if (conn && conn.disconnectAt === undefined) {
-            return { accepted: false, reason: "pivotId 已被占用" };
+            return { accepted: false, reason: `pivotId 已被占用: "${pivotId}"` };
         }
         return { accepted: true };
     }
@@ -149,10 +189,9 @@ export class ConnectionManager {
      */
     async addConnection(
         pivotId: string,
-        pivotInfo: PivotInfo,
+        pivotInfo: Pivot,
         send: (message: Message) => Promise<unknown>,
         adapterType: AdapterType,
-        options?: { enableHeartbeat?: boolean }
     ): Promise<Connection> {
         let connection = this.connections.get(pivotId);
         if (!connection) connection = {} as Connection;
@@ -162,16 +201,33 @@ export class ConnectionManager {
         connection.pivotId = pivotId;
         connection.pivotInfo = pivotInfo;
         connection.adapterType = adapterType;
-        connection.status = { connectedAt: Date.now(), lastHeartbeatAt: Date.now() };
+        connection.connectedAt = Date.now();
+        connection.lastHeartbeatAt = Date.now();
         connection.disconnectAt = undefined;
 
         this.connections.set(pivotId, connection);
         console.info('支点注册', pivotId);
-        if (options?.enableHeartbeat) {
-            this._startTimers(pivotId, connection);
-        }
 
-        this.handlers.onConnect?.(pivotId, connection);
+        // 连接已注册，检查是否有待发送的消息
+        if (Array.isArray(this.waitSends[pivotId]) && 0 < this.waitSends[pivotId].length) {
+            // 循环发送消息，为了避免http这种单次只能接收一条消息，所以需要等待对方接收完成并且每次都需要检查连接是否还在
+            for (let i = 0; i < this.waitSends[pivotId].length; i++) {
+                const message = this.waitSends[pivotId][i];
+                try {
+                    if (Date.now() - this.waitSendTimeout < message.waitTime) {
+                        await message.routeTo(connection);
+                    } else {
+                        console.log('删除等待发送超时的消息!', message);
+                    }
+                    // 发送成功或者超时都删除该任务
+                    this.waitSends[pivotId].splice(i, 1);
+                } catch (err) {
+                    // 如果任务还没有超时就无限重试，这样就不用处理网络异常问题了
+                    const errMsg = err instanceof Error ? err.message : String(err);
+                    console.log('挂起的消息尝试发送失败, 等待下次尝试', errMsg)
+                }
+            }
+        }
         return connection;
     }
 
@@ -211,7 +267,7 @@ export class ConnectionManager {
     getAll(): Map<string, Connection> {
         const result = this.getAllWithCache();
         for (const [pivotId, conn] of result) {
-            if (!this._isExpired(conn)) {
+            if (this._isExpired(conn)) {
                 result.delete(pivotId);
             }
         }
@@ -234,10 +290,10 @@ export class ConnectionManager {
         const connection = this.connections.get(pivotId);
         if (!connection || this._isExpired(connection)) return false;
 
-        connection.status.lastHeartbeatAt = Date.now();
+        connection.lastHeartbeatAt = Date.now();
         if (connection.timeoutTimer) {
             this._clearTimers(connection);
-            this._startTimers(pivotId, connection);
+            // this._startTimers(pivotId, connection);
         }
         return true;
     }
@@ -251,14 +307,16 @@ export class ConnectionManager {
         const auditPivotId = process.env.AUDIT_PIVOT_ID ?? "audit";
         const auditConn = this.get(auditPivotId);
         if (auditConn) {
-            const message: Message = {
-                senderId: "gateway",
-                targetId: auditPivotId,
-                type: "authenticateRequest",
-                payload: { data: { request } },
-                traceId: randomUUID(),
-                timestamp: Date.now(),
-            };
+            const message = new Message({
+                senderId: gatewayPivot.pivotId,
+                receiverId: auditPivotId,
+                payload: {
+                    type: "authenticateRequest",
+                    timestamp: Date.now(),
+                    sync: true
+                },
+                body: { request }
+            });
             return await auditConn.send(message);
         }
         return true;
@@ -269,35 +327,40 @@ export class ConnectionManager {
         const auditPivotId = process.env.AUDIT_PIVOT_ID ?? "audit";
         const auditConn = this.get(auditPivotId);
         if (auditConn) {
-            const message: Message = {
-                senderId: "gateway",
-                targetId: auditPivotId,
-                type: "auditConnection",
-                payload: { data: { connection, request } },
-                traceId: randomUUID(),
-                timestamp: Date.now(),
-            };
+            const message = new Message({
+                senderId: gatewayPivot.pivotId,
+                receiverId: auditPivotId,
+                payload: {
+                    type: "auditConnection",
+                    timestamp: Date.now(),
+                    sync: true
+                },
+                body: { connection, request }
+            });
             return await auditConn.send(message);
         }
     }
 
     // ─── 内部方法 ───
 
-    /** 为指定连接启动心跳和超时定时器 */
+    /** 为指定连接启动心跳和超时定时器
+     * @deprecated 服务器不应该主动给客户端发心跳
+     */
     private _startTimers(pivotId: string, connection: Connection): void {
         connection.heartbeatTimer = setInterval(() => {
             // 心跳检测：调用 send 发送心跳消息
-            connection.send({
-                senderId: "gateway",
-                targetId: pivotId,
-                type: "heartbeat",
-                payload: {},
-                traceId: randomUUID(),
-                timestamp: Date.now(),
-            }).catch(() => { });
+            connection.send(new Message({
+                senderId: gatewayPivot.pivotId,
+                receiverId: pivotId,
+                payload: {
+                    type: "heartbeat",
+                    timestamp: Date.now()
+                }
+            })).catch(() => { });
         }, this.heartbeatInterval);
 
         connection.timeoutTimer = setTimeout(() => {
+            // TODO 这个 onHeartbeatTimeout 不清楚是干什么用的，似乎没有被创建过
             this.handlers.onHeartbeatTimeout?.(pivotId);
             this.removeConnection(pivotId);
         }, this.pivotTimeout);
@@ -334,4 +397,106 @@ export class ConnectionManager {
     }
 
     // #endregion 认证和其他方法
+    // #region 统一发送消息
+
+    /**
+     * 解析目标支点 ID
+     * - 消息已有 receiverId 则直接使用
+     * - 否则通过插件 pivot（router）动态路由
+     */
+    async selectTargetPivotId(message: Message): Promise<string> {
+        if (message.receiverId) return message.receiverId;
+        if (!this.pluginPivotId) throw new Error("未配置路由插件 pivot");
+
+        const pluginMsg = new Message({
+            senderId: gatewayPivot.pivotId,
+            receiverId: this.pluginPivotId,
+            // 用于全局追踪，taskId 需要重新生成，因为他不是这一轮次消息的id
+            traceId: message.traceId,
+            payload: {
+                ...message.payload,
+                type: "push",
+                timestamp: Date.now(),
+                sync: true
+            }
+        });
+        const msg = await this.gatewayPivot.sendToServer(pluginMsg) as Message;
+        return msg.body
+    }
+
+    /**
+     * 向指定支点请求并等待响应
+     * - Fun 模式：直接调用 send，同步返回结果
+     * - WS/HTTP 模式：通过 pendingRequests 等待异步响应
+     */
+    async requestTo(pivotId: string, message: Message): Promise<unknown> {
+        debug('所有连接:', this.connections.size, Array.from(this.connections.keys()))
+        const conn = this.get(pivotId);
+        if (conn) {
+            // 统一使用 send 方法，支持同步返回结果
+            return await conn.send(message);
+        }
+        console.log('连接不存在，等待连接建立后重试')
+
+        // 连接不存在，等待连接建立后重试
+        return new Promise((resolve, reject) => {
+            // 如果不存在则创建一个空数组
+            if (!this.waitSends[pivotId]) {
+                this.waitSends[pivotId] = [];
+            }
+            // 添加等待发送的任务
+            this.waitSends[pivotId].push({
+                waitTime: Date.now(),
+                message,
+                resolve,
+                reject,
+                async routeTo(conn: Connection) {
+                    // 因为有可能是连接有异常导致发送失败，所以不能在这里处理失败信息
+                    return await conn.send(this.message).then(re => resolve(re));
+                }
+            });
+        });
+    }
+
+    /**
+     * 统一处理业务消息
+     * - pivots 类型：查询支点列表
+     * - 其他类型：路由到目标支点处理
+     * @returns pivots 查询返回支点列表，其他返回路由结果
+     */
+    async handleBizMessage(message: Message): Promise<unknown> {
+        try {
+            debug('connection收到消息:', message)
+            // 查询处理这个任务的支点然后进行响应
+            const targetPivotId = await this.selectTargetPivotId(message);
+            message.receiverId = targetPivotId;
+            console.info('✉', message.senderId, '->', message.receiverId, message);
+            // 记录目标路由表
+            if (message.payload?.taskId) {
+                this.setRoute(message.taskId, targetPivotId);
+            }
+            if (message.payload?.sync) {
+                // 同步进行响应
+                return await this.requestTo(targetPivotId, message);
+            } else {
+                // 异步进行响应
+                this.requestTo(targetPivotId, message);
+                return { status: "accepted", taskId: message.payload?.taskId };
+            }
+        } catch (err) {
+            const errorMsg = err instanceof Error ? err.message : String(err);
+            return { status: "error", taskId: message.payload?.taskId, error: errorMsg };
+        }
+    }
+
+    /**
+     * 统一处理业务消息钩子，专门用于给外部重写，从而实现自定义消息处理机制
+     * - pivots 类型：查询支点列表
+     * - 其他类型：路由到目标支点处理
+     * @returns pivots 查询返回支点列表，其他返回路由结果
+     */
+    async handleBizMessageHook(message: Message): Promise<unknown> {
+        return this.handleBizMessage(message)
+    }
+    // #endregion 统一发送消息
 }

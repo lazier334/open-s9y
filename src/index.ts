@@ -1,9 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { pathToFileURL } from "node:url";
 import { GatewayServer } from "./server.ts";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 main().catch((err) => {
     console.error("启动网关失败:", err);
@@ -13,7 +11,7 @@ main().catch((err) => {
 async function main() {
     // 初始化
     try {
-        const initpath = path.join(__dirname, '../plugins/lib/init.ts');
+        const initpath = path.join(import.meta.dirname, '../plugins/lib/init.ts');
         if (fs.existsSync(initpath)) await import(initpath);
     } catch (err) {
         console.error('加载初始化模块失败:', err);
@@ -31,18 +29,20 @@ async function main() {
     // 加载适配器
     await loadAdapters(server);
 
-    // 启动服务器
-    const address = await server.listen(port);
-    console.log(`网关服务正在监听: ${address}`);
-
-    const shutdown = () => server.close().then(() => process.exit(0));
-    process.on("SIGINT", shutdown);
-    process.on("SIGTERM", shutdown);
+    // 检测文件存活状态
+    const runfile = 'start.log';
+    fs.writeFileSync(runfile, new Date().toLocaleString());
+    setInterval(() => {
+        if (!fs.existsSync(runfile)) {
+            console.warn('由于状态文件被删除, 正在退出服务器');
+            process.exit(0);
+        }
+    }, 1000);
 }
 
 /** 加载适配器 */
 async function loadAdapters(server: GatewayServer): Promise<void> {
-    const adaptersDir = path.resolve(__dirname, "./adapters");
+    const adaptersDir = path.resolve(import.meta.dirname, "./adapters");
     const files = fs.readdirSync(adaptersDir).filter(f => f.endsWith(".ts") || f.endsWith(".js"));
     for (const file of files) {
         const mod = await import(pathToFileURL(path.resolve(adaptersDir, file)).href) as Record<string, new (server: GatewayServer) => any>;

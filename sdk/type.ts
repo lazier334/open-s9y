@@ -1,12 +1,95 @@
+// 可以在此处更改，用于是否开启调试模式
+export const debug = process.env.DEBUG ? (...args: any[]) => console.log(...args) : () => { };
+// export const debug = (...args: any[]) => console.log(...args);  // 直接开启调试
+
+/** 
+ * 创建随机 traceId 
+ * 如果需要伪uuid可以这样使用 `createTraceId(32,'0123456789abcdef').match(/.{1,4}/g).join('-')`
+ */
+export function createTraceId(length: number = 10, characters: string = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz', prefix = 'n.') {
+    const result = [];
+    for (let i = 0; i < length - prefix.length; i++) {
+        result.push(characters.charAt(Math.floor(Math.random() * characters.length)))
+    }
+    return prefix + result.join('')
+}
+
 /**
  * 消息类型
  * - push: 任务推送（网关 → 支点，或支点 → 网关）
  * - pipe: 管道协议（进度/结果/状态查询）
  * - register: 支点注册
  * - heartbeat: 心跳保活
- * - pivots: 查询支点列表
- */
+ * - pivots: 查询支点列表 */
 export type MessageType = "push" | "pipe" | "register" | "heartbeat" | "pivots" | string;
+
+/** 
+ * 消息载荷，用于做配置
+ */
+export class MessagePayload {
+    /** 消息类型 */
+    type: MessageType;
+    /** 时间戳 (ms) */
+    timestamp: number;
+    /** 匹配目标支点名称 (模糊匹配，优先级次于 receiverId) */
+    receiverName?: string;
+    /** 匹配目标支点能力标签 (匹配优先级最低) */
+    capabilities?: string[];
+    /** 本次任务消耗的价格 (支持动态定价场景) */
+    cost?: string;
+    /** 价格表标识 (支持动态定价，仅做标记用) */
+    priceTable?: string;
+    /** 同步模式: 网关等待目标支点响应后直接返回 */
+    sync?: boolean;
+    /** 同步模式: 超时时间 */
+    syncTimeout?: number;
+    /** 允许任意其他属性 */
+    [key: string]: unknown;
+
+    constructor(payload: Partial<MessagePayload>) {
+        if (typeof payload != "object") payload = {};
+        for (const key in payload) {
+            const val = payload[key];
+            this[key] = val;
+        }
+        this.type = payload.type ?? "push";
+        this.timestamp = payload.timestamp ?? Date.now();
+        if (this.sync) {
+            if (!(typeof this.syncTimeout != 'number' || 0 < this.syncTimeout)) this.syncTimeout = 300_000;
+        }
+    }
+}
+
+export type MessageOptions = Partial<Message>;
+/** 消息类 */
+export class Message {
+    /** 发送方支点 ID */
+    senderId: string;
+    /** 目标支点 ID */
+    receiverId?: string;
+    /** 全链路追踪 ID 一个事件应当使用统一的一个id  
+     * 例如: 需求user->gateway 然后 gateway 无论调用多少支点, 全程应当都带有统一的 traceId  */
+    traceId: string;
+    /** 任务 ID 仅用于本次发送消息与响应使用  
+     * 例如: 发送a->b 且 回应b->a 总共2条一起组成单次任务 */
+    taskId: string;
+    /** 消息载荷 */
+    payload: MessagePayload;
+    /** 消息内容 */
+    body: any;
+    /** 失败信息, 用于任务处理失败时, 推荐写错误对象Error */
+    error?: any;
+
+    constructor(message: MessageOptions) {
+        this.senderId = message.senderId ?? '-';
+        if (message.receiverId != undefined) this.receiverId = message.receiverId;
+        if (message.error != undefined) this.error = message.error;
+        this.traceId = message.traceId ?? createTraceId();
+        this.taskId = message.taskId ?? createTraceId(undefined, undefined, 'a.');
+        this.payload = new MessagePayload(message.payload ?? {});
+        if (message.body != undefined) this.body = message.body;
+    }
+}
 
 /**
  * 支点类型
@@ -17,69 +100,10 @@ export type MessageType = "push" | "pipe" | "register" | "heartbeat" | "pivots" 
  * - tool: 工具支点
  * - other: 其他类型
  */
-export type PivotType = "user" | "agent" | "system" | "gateway" | "tool" | "other";
+export type PivotType = "user" | "agent" | "system" | "gateway" | "tool" | "other" | string;
 
-/**
- * 消息载荷
- * 根据消息类型不同，载荷结构有所差异
- */
-export interface MessagePayload {
-    /** 任务 ID，用于关联请求和响应 */
-    taskId?: string;
-    /** 业务数据 */
-    data?: unknown;
-    /** 所需能力标签（用于路由匹配） */
-    capabilities?: string[];
-    /** 错误信息（响应消息中携带） */
-    error?: string;
-    /** 任务状态（pending / in_progress / completed / failed） */
-    status?: string;
-    /** 本次消息消耗的价格（支持动态定价场景） */
-    cost?: string;
-    /** 支点 ID（register 消息时使用） */
-    pivotId?: string;
-    /** 支点名称（register 消息时使用） */
-    name?: string;
-    /** 支点类型（register 消息时使用） */
-    type?: PivotType;
-    /** pipe 协议类型（progress / result / status / 自定义） */
-    protocol?: string;
-    /** 价格表标识（支持动态定价，仅做标记用） */
-    priceTable?: string;
-    /** 同步模式：网关等待目标支点响应后直接返回 */
-    sync?: boolean;
-    /** 查询时仅查看不消费缓存 */
-    peek?: boolean;
-    /** 允许任意其他属性 */
-    [key: string]: unknown;
-}
-
-/**
- * 消息结构
- * 网关内所有通信的统一格式
- */
-export interface Message {
-    /** 发送方支点 ID */
-    senderId: string;
-    /** 目标支点 ID（精确匹配，优先级最高） */
-    targetId?: string;
-    /** 目标支点名称（模糊匹配，优先级次于 targetId） */
-    targetName?: string;
-    /** 消息类型 */
-    type: MessageType;
-    /** 消息载荷 */
-    payload: MessagePayload;
-    /** 全链路追踪 ID（用于关联请求和响应） */
-    traceId: string;
-    /** 时间戳（ms） */
-    timestamp: number;
-}
-
-/**
- * 支点信息
- * 支点注册时声明的基本信息
- */
-export interface PivotInfo {
+/** 支点类构造参数 */
+export type PivotOptions = {
     /** 支点唯一标识 */
     pivotId: string;
     /** 支点类型 */
@@ -90,42 +114,35 @@ export interface PivotInfo {
     capabilities?: string[];
     /** 价格表标识（支持动态定价，仅做标记用） */
     priceTable?: string;
-}
+};
 
-/**
- * 支点连接状态
- */
-export interface Status {
-    /** 连接建立时间（ms） */
-    connectedAt: number;
-    /** 最后一次心跳时间（ms） */
-    lastHeartbeatAt: number;
-    /** 负载值（预留，用于负载均衡） */
-    load?: number;
-}
+/** 支点类 */
+export class Pivot {
+    /** 支点唯一标识 */
+    pivotId: string;
+    /** 支点类型 */
+    type: PivotType;
+    /** 支点名称（可用于路由匹配） */
+    name: string;
+    /** 支点能力标签（注册时声明，可用于路由匹配和筛选） */
+    capabilities?: string[];
+    /** 价格表标识（支持动态定价，仅做标记用） */
+    priceTable?: string;
 
-/**
- * /pipe 接口的 Query 参数类型
- * - GET 和 POST 共用
- * - targetPivotId 仅在 GET 时有效，用于显式指定目标支点、跳过路由
- */
-export interface PipeQuery {
-    /** 任务 ID */
-    taskId: string;
-    /** 管道协议类型（progress / result / status / 自定义） */
-    protocol?: string;
-    /** 目标支点 ID（可选，跳过路由直接指定） */
-    targetPivotId?: string;
-}
+    /**
+     * 如果 capabilities 字段存在，且不是数组，则会将其转成字符串数组
+     * @param pivot 
+     */
+    constructor(pivot: PivotOptions) {
+        if (pivot.pivotId == undefined) throw new Error(`支点的 pivotId 字段不能为空!`);
+        if (pivot.type == undefined) throw new Error(`支点的 type 字段不能为空!`);
 
-/**
- * 网关对外暴露的 API，供插件和适配器调用
- */
-export interface GatewayAPI {
-    /** 向指定支点推送消息（异步，不等待响应） */
-    routeTo(pivotId: string, message: Message): Promise<void>;
-    /** 向指定支点请求流式进度（预留接口） */
-    openStream(pivotId: string, message: Message): ReadableStream;
-    /** 向指定支点请求并等待响应 */
-    requestTo(pivotId: string, message: Message): Promise<unknown>;
+        this.pivotId = pivot.pivotId;
+        this.type = pivot.type;
+        this.name = pivot.name ?? pivot.pivotId;
+        if (pivot.capabilities != undefined) {
+            this.capabilities = Array.isArray(pivot.capabilities) ? pivot.capabilities : [String(pivot.capabilities)];
+        }
+        if (pivot.priceTable != undefined) this.priceTable = pivot.priceTable;
+    }
 }

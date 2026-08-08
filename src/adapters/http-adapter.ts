@@ -1,7 +1,7 @@
-import type { Message } from "../../sdk/type.ts";
 import type { GatewayServer } from "../server.ts";
-import type { ConnectionParams } from "./s9y-adapter.ts";
+import type { ConnectionOptions } from "./s9y-adapter.ts";
 import type { FastifyRequest, FastifyReply } from "fastify";
+import { MessagePayload, Message } from "../../sdk/type.ts";
 import { S9yAdapter, AdapterError } from "./s9y-adapter.ts";
 
 /**
@@ -60,23 +60,23 @@ export class HttpAdapter extends S9yAdapter {
                 // 注册连接
                 cp.send = send;
                 cp.adapterType = 'http';
-                const conn = await this.registerConnection(cp);
 
                 // 长轮询超时或断开时清理
                 const cleanConn = () => {
                     clearTimeout(timer);
-                    if (this.server.connections.get(cp.pivotId) === conn) {
-                        this.server.connections.removeConnection(cp.pivotId);
-                    }
+                    // 因为当有缓存消息的时候，还没来得及赋值 conn 就已经发送数据触发 close 事件了，所以这里不能检查
+                    // if (this.server.connections.get(cp.pivotId) === conn) 
+                    this.server.connections.removeConnection(cp.pivotId);
                     sendResolve(null);
                 };
                 // 超时返回 noop
                 const timer = setTimeout(() => {
-                    send({ type: "noop" } as Message).catch(() => { });
+                    send(new Message({ payload: new MessagePayload({ type: "noop" }) })).catch(() => { });
                     cleanConn();
                 }, this.server.requestTimeout);
                 reply.raw.on("close", cleanConn);
 
+                const conn = await this.registerConnection(cp);
                 return sendPromise;
             } catch (err) {
                 if (err instanceof AdapterError) return reply.code(err?.code || 503).send({ error: err?.message });
@@ -89,7 +89,7 @@ export class HttpAdapter extends S9yAdapter {
             const q = this._parseQuery(request.url);
             const body = (request.body as Record<string, unknown>) ?? {};
             const merged = { ...q, ...body };
-            delete merged._json;
+            if ('_json' in merged) delete merged._json;
             try {
                 const message = this.createMessage(merged);
                 const result = await this.handleMessage(message);
@@ -109,9 +109,9 @@ export class HttpAdapter extends S9yAdapter {
      * - 其余字段逐项 decodeURIComponent 后尝试 JSON.parse，失败则保留原始字符串
      * - 返回 { ..._json, ...flat }（flat 覆盖 _json）
      */
-    _parseQuery(url: string): ConnectionParams {
+    _parseQuery(url: string): ConnectionOptions {
         const si = url.indexOf("?");
-        if (si === -1) return {} as ConnectionParams;
+        if (si === -1) return {} as ConnectionOptions;
         const params = new URLSearchParams(url.slice(si));
         const flat: Record<string, unknown> = {};
         params.forEach((v, k) => {
@@ -120,6 +120,6 @@ export class HttpAdapter extends S9yAdapter {
         const jsonObj = typeof flat._json === "object" && flat._json !== null
             ? flat._json as Record<string, unknown>
             : {};
-        return { ...jsonObj, ...flat } as ConnectionParams;
+        return { ...jsonObj, ...flat } as ConnectionOptions;
     }
 }
