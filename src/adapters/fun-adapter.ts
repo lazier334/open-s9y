@@ -3,7 +3,6 @@ import type { Connection } from "../connection.ts";
 import type { Message, } from "../../sdk/type.ts";
 import type { FunPivot } from "../../sdk/fun-pivot-sdk.ts";
 import { S9yAdapter } from "./s9y-adapter.ts";
-import usePlugins from "../../plugins/index.ts";
 
 /**
  * 本地函数插件适配器  
@@ -12,8 +11,7 @@ export class FunAdapter extends S9yAdapter {
     constructor(server: GatewayServer) {
         super(server);
         // 将fun适配器注册到网关中
-        server.connections.setFunAdapter(this);
-        usePlugins(this);
+        server.init(this);
     }
 
     /**

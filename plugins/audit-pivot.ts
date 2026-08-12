@@ -1,3 +1,8 @@
+/**
+ * TODO 这个支点可能不完整，还需要后面继续调试连通性
+ * TODO 这个支点可能不完整，还需要后面继续调试连通性
+ * TODO 这个支点可能不完整，还需要后面继续调试连通性
+ */
 import type { Connection } from "../src/connection.ts";
 import type { IncomingMessage } from "node:http";
 import type { FastifyRequest } from "fastify";
@@ -52,7 +57,6 @@ export const pivot = new FunPivot({
      * - 选择 assignedCount 最小的支点
      */
     async onMessage(message) {
-        console.log(this.name, '收到消息', message);
         const { connection, request } = (message.body ?? {}) as {
             connection?: Connection;
             request?: FastifyRequest | IncomingMessage;
@@ -63,7 +67,7 @@ export const pivot = new FunPivot({
         const session = search.get(KEY_NAME) || getCookie(request.headers, KEY_NAME) || '';
 
         if (message.payload.type == 'authenticateRequest') {
-            const auth = authenticate(session);
+            const auth = await authenticate(session);
             return new Message({ body: auth });
         } else {
             if (!connection) throw new Error("Audit: 缺少 connection");

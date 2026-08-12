@@ -6,8 +6,9 @@
  * - 支持长轮询接收消息
  * - 适合无状态部署场景
  */
-import type { Message } from "./type.ts";
-import { S9yPivot, type S9yPivotOptions } from "./s9y-pivot-sdk.ts";
+import { debug, Message, MessagePayload, PivotError } from './type.ts';
+import { S9yPivot, type S9yPivotOptions } from './s9y-pivot-sdk.ts';
+export * from './type.ts';
 
 // ─── 类型定义 ───
 
@@ -47,73 +48,79 @@ export class HttpPivot extends S9yPivot {
         this.headers = options.headers || {};
     }
 
-    // ─── 子类实现 ───
-
-    protected async doConnect(): Promise<void> {
-        // 发送注册请求
-        await this._register();
-
-        // 启动长轮询
-        if (this.enableLongPoll) {
-            this._startLongPoll();
-        }
-    }
-
-    protected doDisconnect(): void {
-        this._stopLongPoll();
-    }
-
-    protected async doSend(message: Message): Promise<unknown> {
-        const url = `${this.baseUrl}/s9y`;
-        const res = await fetch(url, {
+    protected async onSend(message: Message): Promise<unknown> {
+        const res = await this._send({
             method: "POST",
             headers: {
-                ...this.headers,
                 "Content-Type": "application/json",
             },
             body: JSON.stringify(message),
         });
-
         if (!res.ok) {
-            throw new Error(`[HttpSDK] 发送失败: ${res.status} ${res.statusText}`);
+            let re = '';
+            try {
+                re = await res.text()
+            } catch (err) {
+                // console.error('读取结果失败');
+            }
+            throw new Error(`HttpSDK 发送失败: ${res.status} ${res.statusText} \n${re}`);
         }
+        return await res.json();
 
-        const contentType = res.headers.get("content-type");
-        if (contentType?.includes("application/json")) {
-            return await res.json();
+    }
+
+
+    // ─── 子类实现 ───
+
+    protected async onConnect() {
+        // 发送注册请求
+        await this._register();
+        // 启动长轮询
+        if (this.enableLongPoll) {
+            this._startLongPoll();
         }
-        return await res.text();
+        debug(`HttpSDK: 支点 ${this.pivotId} 已就绪（本地模式）`);
+    }
+
+    protected async onDisconnect() {
+        this._stopLongPoll();
+        debug(`HttpSDK: 支点 ${this.pivotId} 已断开（本地模式）`);
     }
 
     // ─── 内部方法 ───
-
-    private async _register(): Promise<void> {
+    /**
+     * 
+     * @param message 消息
+     * @param reqOpts fetch的配置
+     * @returns 
+     */
+    private async _send(reqOpts: Record<string, any>): Promise<Response> {
         const params = new URLSearchParams();
         params.set("pivotId", this.pivotId);
+        params.set("name", this.name);
         params.set("type", this.type);
-        if (this.name) params.set("name", this.name);
-        if (this.capabilities?.length) {
-            params.set("capabilities", this.capabilities.join(","));
-        }
-        if (this.priceTable) {
-            params.set("priceTable", this.priceTable);
-        }
-
+        if (this.capabilities?.length) params.set("capabilities", this.capabilities.join(","));
+        if (this.priceTable) params.set("priceTable", this.priceTable);
         const url = `${this.baseUrl}/s9y?${params.toString()}`;
-        const res = await fetch(url, {
-            method: "GET",
-            headers: this.headers,
+
+        if (typeof reqOpts?.headers != 'object') reqOpts.headers = {};
+        debug('HttpSDK: 发起请求:', url, reqOpts)
+        // 监听，结果丢给消息处理
+        // 发送任务，结果直接丢弃
+        return fetch(url, {
+            ...reqOpts,
+            headers: {
+                ...this.headers,
+                ...reqOpts.headers,
+            },
         });
+    }
 
-        if (res.status === 409) {
-            throw new Error("[HttpSDK] 注册冲突，pivotId 已被占用");
-        }
-
-        if (!res.ok) {
-            throw new Error(`[HttpSDK] 注册失败: ${res.status}`);
-        }
-
-        console.log(`[HttpSDK] 已注册: ${this.pivotId}`);
+    private async _register(): Promise<void> {
+        const res = await this.onSend(new Message({
+            payload: new MessagePayload({ type: 'pivots' })
+        })) as Response;
+        debug(`HttpSDK: 已注册: ${this.pivotId} 响应结果:`, res);
     }
 
     private _startLongPoll(): void {
@@ -124,22 +131,20 @@ export class HttpPivot extends S9yPivot {
         const loop = async () => {
             while (this.longPollRunning) {
                 try {
-                    const params = new URLSearchParams();
-                    params.set("pivotId", "poll");
-
-                    const res = await fetch(`${this.baseUrl}/s9y?${params.toString()}`, {
+                    const res = await this._send({
                         method: "GET",
-                        headers: this.headers,
                         signal: this.longPollAbort?.signal,
                     });
+                    debug('HttpSDK: 收到消息推送');
 
                     if (!res.ok) {
                         if (res.status === 409) {
-                            console.warn("[HttpSDK] 轮询冲突，2秒后重试...");
+                            console.warn("HttpSDK: 轮询冲突, 2秒后重试...");
                             await this._delay(2000);
                             continue;
                         }
-                        console.error(`[HttpSDK] 轮询失败: ${res.status}`);
+                        const text = await res.text();
+                        console.error(`HttpSDK: 轮询失败: ${res.status}`, text);
                         await this._delay(5000);
                         continue;
                     }
@@ -159,7 +164,7 @@ export class HttpPivot extends S9yPivot {
                     if (err instanceof Error && err.name === "AbortError") {
                         break;
                     }
-                    console.error("[HttpSDK] 轮询异常:", err);
+                    console.error("HttpSDK: 轮询异常:", err);
                     await this._delay(5000);
                 }
             }

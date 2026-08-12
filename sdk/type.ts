@@ -2,6 +2,17 @@
 export const debug = process.env.DEBUG ? (...args: any[]) => console.log(...args) : () => { };
 // export const debug = (...args: any[]) => console.log(...args);  // 直接开启调试
 
+/** sdk错误 */
+export class PivotError extends Error {
+    public code: number;
+
+    constructor(message: string | undefined, code: number) {
+        super(message);
+        this.code = code;
+        this.name = 'PivotError';
+    }
+}
+
 /** 
  * 创建随机 traceId 
  * 如果需要伪uuid可以这样使用 `createTraceId(32,'0123456789abcdef').match(/.{1,4}/g).join('-')`

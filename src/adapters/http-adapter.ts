@@ -92,12 +92,15 @@ export class HttpAdapter extends S9yAdapter {
             if ('_json' in merged) delete merged._json;
             try {
                 const message = this.createMessage(merged);
-                const result = await this.handleMessage(message);
-                // TODO 推送消息完成后需要把结果弄成 Message 来响应
-                return reply.code(202).send(result);
+                this.handleMessage(message);
+                // 响应消息会走send通道，这里无需响应有效内容
+                return reply.code(200).send({ body: 'ok' });
             } catch (err) {
+                console.log('消息接收失败:', err)
                 if (err instanceof AdapterError) return reply.code(err?.code || 503).send({ error: err?.message });
-                return reply.code(503).send({ error: String(err) });
+                return reply.code(503).send({
+                    error: String(err)
+                });
             }
         });
     }

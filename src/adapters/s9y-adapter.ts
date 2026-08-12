@@ -50,7 +50,11 @@ export abstract class S9yAdapter {
 
     /** 身份认证, 可以传递任意参数, 实际类型是 unknown */
     protected async authenticateRequest(request: IncomingMessage | FastifyRequest) {
-        return await this.connections.authenticateRequest(request)
+        try {
+            return await this.connections.authenticateRequest(request);
+        } catch (err) {
+            console.log('异常', err)
+        }
     }
 
     /** 把消息交给服务器做处理 */
@@ -100,6 +104,8 @@ export abstract class S9yAdapter {
             throw new AdapterError('当前连接未注册, 无法创建消息!', 405);
         }
         const message: Message = new Message({
+            // 需要保留原始的信息
+            ...mp,
             senderId: cached?.pivotInfo.pivotId ?? mp.pivotId ?? mp.senderId,
             receiverId: mp.receiverId,
             payload: new MessagePayload(mp.payload || {}),

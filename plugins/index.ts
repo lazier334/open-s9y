@@ -13,12 +13,15 @@ type FunPivotWarp = {
 // 热重载检测间隔时间
 const reloadStepTime = 2000;
 const pivotsCache: Record<string, FunPivotWarp> = {};
+const devMode = (process.env.NODE_ENV ?? '').startsWith('dev');
+const filterSuffix = !devMode ? (name: string) => { return name.endsWith("pivot.ts") || name.endsWith("pivot.js") }
+    : (name: string) => { return name.endsWith("pivot.ts") || name.endsWith("pivot.test.ts") || name.endsWith("pivot.js") || name.endsWith("pivot.test.js") };
 
 /** 扫描并注册支点 */
 export default async function scanAndRegister(funAdapter: FunAdapterType): Promise<void> {
     const pivotList = Object.values(await loadFunPivots(funAdapter));
     console.info(`已注册${pivotList.length}个本地支点`);
-    if ((process.env.NODE_ENV ?? '').startsWith('dev')) {
+    if (devMode) {
         console.warn(`当前为 dev 环境, 已开启fun支点热加载, 检测间隔 ${reloadStepTime}ms`);
         const dingtime = () => {
             setTimeout(async () => {
@@ -69,7 +72,7 @@ async function loadFunPivots(
     }
     // 排除当前文件, 并排除非 `pivot.ts`、`pivot.js` 结尾的文件
     let files = fs.readdirSync(pluginDir).filter(name => ![path.basename(import.meta.filename)]
-        .includes(name) && (name.endsWith("pivot.ts") || name.endsWith("pivot.test.ts") || name.endsWith("pivot.js") || name.endsWith("pivot.test.js")));
+        .includes(name) && filterSuffix(name));
     // 热更新时排除以 `_` 开头的插件
     if (hot) files = files.filter(name => !name.startsWith('_'));
     files.sort();
@@ -100,9 +103,8 @@ async function loadFunPivots(
     for (const key in pivots) {
         const pivotWarp = pivotsCache[key] = pivots[key];
         // 注册新支点
-        pivotWarp.conn = await funAdapter.register(pivotWarp.pivot);
-        // 触发连接事件
         pivotWarp.pivot.connect();
+        pivotWarp.conn = pivotWarp.pivot.conn;
     }
     return pivots
 }

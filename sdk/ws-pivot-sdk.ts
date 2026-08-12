@@ -9,6 +9,7 @@
 import { S9yPivot, type S9yPivotOptions } from "./s9y-pivot-sdk.ts";
 import { Message } from "./type.ts";
 import WebSocket from "ws";
+export * from './type.ts';
 
 
 // ─── 类型定义 ───
@@ -90,7 +91,7 @@ export class WsPivot extends S9yPivot {
         }
     }
 
-    protected async doSend(message: Message): Promise<unknown> {
+    protected async onSend(message: Message): Promise<unknown> {
         if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
             throw new Error("[WsSDK] WebSocket 未连接");
         }
@@ -103,7 +104,7 @@ export class WsPivot extends S9yPivot {
         });
     }
 
-    protected onConnected(): void {
+    protected async onConnect() {
         // 发送注册消息
         this._sendRegister();
     }

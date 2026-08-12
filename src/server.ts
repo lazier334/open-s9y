@@ -1,9 +1,20 @@
-import type { Server } from "node:http";
-import type { FastifyInstance } from "fastify";
+import type { Server } from "http";
 import type { Message } from "../sdk/type.ts";
+import type { FastifyInstance } from "fastify";
+import type { FunAdapterType } from "./adapters/fun-adapter.ts";
 import Fastify from "fastify";
 import { WebSocketServer } from "ws";
+import usePlugins from "../plugins/index.ts";
+import { FunPivot } from "../sdk/fun-pivot-sdk.ts";
 import { ConnectionManager } from "./connection.ts";
+
+/** 网关pivot */
+export const gatewayPivot = new FunPivot({
+    pivotId: 'gateway',
+    type: 'system',
+    capabilities: ['gateway'],
+    async onMessage(message: Message) { },
+});
 
 export interface GatewayServerOptions {
     port?: number;
@@ -56,13 +67,24 @@ export class GatewayServer {
         );
 
         this.connections = new ConnectionManager({
+            gatewayPivot,
             heartbeatInterval: options.heartbeatInterval,
             pivotTimeout: options.pivotTimeout,
             pivotCacheTTL: options.pivotCacheTTL,
             pluginPivotId: options.pluginPivotId,
         });
         // 重写消息处理函数
-        this.connections.handleBizMessageHook = (...args) => this.handleBizMessage(...args);
+        this.connections.handleBizMessageHook = (...args) => this.handleBizMessageHook(...args);
+    }
+
+    // 初始化适配器（由适配器调用）
+    async init(funAdapter: FunAdapterType) {
+        // 给 Pivot 添加 Adapter 并注册
+        this.connections.setFunAdapter(funAdapter)
+        // 初始化系统其他插件
+        usePlugins(funAdapter);
+        // 启动服务器
+        this.start();
     }
 
     /** 启动服务器 */
@@ -127,7 +149,7 @@ export class GatewayServer {
     }
 
     // #endregion 网关类
-    // #region 重写handleBizMessage
+    // #region 重写 handleBizMessageHook
 
     // ─── 业务消息处理 ───
 
@@ -137,7 +159,7 @@ export class GatewayServer {
      * - 其他类型：路由到目标支点处理
      * @returns pivots 查询返回支点列表，其他返回路由结果
      */
-    async handleBizMessage(message: Message): Promise<unknown> {
+    async handleBizMessageHook(message: Message): Promise<unknown> {
         // 查询全部支点的请求
         if (message.payload.type === "pivots") {
             return this._handlePivotsQuery(message);
@@ -167,5 +189,5 @@ export class GatewayServer {
         return { pivots };
     }
 
-    // #endregion 重写handleBizMessage
+    // #endregion 重写 handleBizMessageHook
 }

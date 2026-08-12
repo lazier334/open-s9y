@@ -11,8 +11,9 @@
  * - 直接函数引用，无需序列化
  */
 import type { FunAdapterType } from '../src/adapters/fun-adapter.ts';
-import { S9yPivot, PivotError, type S9yPivotOptions } from './s9y-pivot-sdk.ts';
-import { debug, type Message } from './type.ts';
+import type { Connection } from "../src/connection.ts";
+import { S9yPivot, type S9yPivotOptions } from './s9y-pivot-sdk.ts';
+import { debug, PivotError, type Message } from './type.ts';
 export * from './type.ts';
 
 // ─── 类型定义 ───
@@ -21,8 +22,6 @@ export * from './type.ts';
 export interface FunPivotOptions extends S9yPivotOptions {
     /** 函数适配器，会在外部给当前 pivot 赋值 */
     funAdapter?: FunAdapterType;
-    /** 收到对方主动推送的消息，子类按需 override */
-    onMessage: (message: Message) => Promise<Message | void>
 }
 
 // ─── Fun SDK ───
@@ -35,12 +34,12 @@ export interface FunPivotOptions extends S9yPivotOptions {
  */
 export class FunPivot extends S9yPivot {
     funAdapter?: FunAdapterType;
+    conn?: Connection;
     /** 给网关使用。适配当前的网关调用方式，使用箭头函数是为了保留作用域，这样send函数单独在其他地方也能使用 */
     send: (message: Message) => Promise<any>;
 
     constructor(options: FunPivotOptions) {
         super(options);
-        this.onMessage = options.onMessage;
         this.send = (message) => super.handleIncoming(message);
     }
 
@@ -50,11 +49,13 @@ export class FunPivot extends S9yPivot {
     };
 
     // ─── 子类实现 ───
-    protected async onConnected() {
+    protected async onConnect() {
+        this.conn = await this.funAdapter?.register(this);
         debug(`FunSDK: 支点 ${this.pivotId} 已就绪（本地模式）`);
     }
 
-    protected async onDisconnected() {
+    protected async onDisconnect() {
+        this.funAdapter?.unregister(this.pivotId);
         debug(`FunSDK: 支点 ${this.pivotId} 已断开（本地模式）`);
     }
 }

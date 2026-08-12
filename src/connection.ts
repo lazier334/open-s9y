@@ -1,13 +1,6 @@
-import { type FunAdapter } from "./adapters/fun-adapter.ts"
-import { Message, type Pivot, debug } from "../sdk/type.ts";
-import { FunPivot } from "../sdk/fun-pivot-sdk.ts";
-
-export const gatewayPivot = new FunPivot({
-    pivotId: 'gateway',
-    type: 'system',
-    capabilities: ['gateway'],
-    async onMessage(message: Message) { },
-});
+import type { FunAdapter } from "./adapters/fun-adapter.ts"
+import type { Pivot, FunPivot } from "../sdk/fun-pivot-sdk.ts";
+import { Message, MessagePayload, debug } from "../sdk/type.ts";
 
 /** 适配器类型 */
 export type AdapterType = "ws" | "http" | "fun" | string;
@@ -48,17 +41,8 @@ export interface ConnectionManagerOptions {
     pluginPivotId?: string;
     /** 消息发送超时（ms），当目标支点不在线的时候等待 */
     waitSendTimeout?: number;
+    gatewayPivot?: FunPivot;
 }
-
-/** 连接事件回调 */
-export type ConnectionEventHandler = {
-    /** 支点连接建立时触发 */
-    onConnect?: (pivotId: string, connection: Connection) => void;
-    /** 支点断开连接时触发 */
-    onDisconnect?: (pivotId: string) => void;
-    /** 心跳超时（支点无响应）时触发，随后自动断开连接 */
-    onHeartbeatTimeout?: (pivotId: string) => void;
-};
 
 /**
  * 统一支点管理器
@@ -68,12 +52,10 @@ export type ConnectionEventHandler = {
  * - 任务路由表（taskId → pivotId），断连自动清理
  */
 export class ConnectionManager {
-    private gatewayPivot: FunPivot = gatewayPivot;
-    private gatewayConn?: Connection;
+    private gatewayPivot: FunPivot;
     async setFunAdapter(funAdapter: FunAdapter) {
-        gatewayPivot.funAdapter = funAdapter;
-        // @ts-ignore 因为去导入那个类型太麻烦了，后面看看要不全部统一使用 Pivot 类型吧，类型写的太多了
-        this.gatewayConn = await funAdapter.register(this.gatewayPivot);
+        this.gatewayPivot.funAdapter = funAdapter;
+        await this.gatewayPivot.connect();
     }
     // 任务路由表
     private taskRoutes = new Map<string, string>();
@@ -81,7 +63,6 @@ export class ConnectionManager {
     private heartbeatInterval: number;
     private pivotTimeout: number;
     private pivotCacheTTL: number;
-    private handlers: ConnectionEventHandler;
     /** 定时清理过期缓存（兜底，防止内存泄漏） */
     private cleanupTimer?: NodeJS.Timeout;
     private pluginPivotId?: string;
@@ -95,13 +76,14 @@ export class ConnectionManager {
     private waitSendTimeout: number;
 
     /** 构造函数 */
-    constructor(options: ConnectionManagerOptions = {}, handlers: ConnectionEventHandler = {}) {
+    constructor(options: ConnectionManagerOptions = {}) {
         this.heartbeatInterval = options.heartbeatInterval ?? 30_000;
         this.pivotTimeout = options.pivotTimeout ?? 60_000;
         this.pivotCacheTTL = options.pivotCacheTTL ?? 60_000;
         this.pluginPivotId = options.pluginPivotId;
         this.waitSendTimeout = options.waitSendTimeout ?? 30_000;
-        this.handlers = handlers;
+        if (typeof options.gatewayPivot != 'object') throw new Error('必须提供有效的 gatewayPivot 参数!');
+        this.gatewayPivot = options.gatewayPivot;
         this.cleanupTimer = setInterval(() => this._cleanupExpiredCache(), this.pivotCacheTTL);
     }
 
@@ -241,8 +223,6 @@ export class ConnectionManager {
         // 标记为断连，保留 pivotInfo 和 status
         connection.disconnectAt = Date.now();
         this.removePivotRoutes(pivotId);
-        // TODO 这个 onDisconnect 不清楚是干什么用的，似乎没有被创建过
-        this.handlers.onDisconnect?.(pivotId);
         return true;
     }
 
@@ -303,12 +283,11 @@ export class ConnectionManager {
     // ─── 认证 ───
 
     /** 接入认证：验证请求 */
-    async authenticateRequest(request: unknown): Promise<unknown> {
+    async authenticateRequest(request: unknown): Promise<boolean> {
         const auditPivotId = process.env.AUDIT_PIVOT_ID ?? "audit";
         const auditConn = this.get(auditPivotId);
         if (auditConn) {
             const message = new Message({
-                senderId: gatewayPivot.pivotId,
                 receiverId: auditPivotId,
                 payload: {
                     type: "authenticateRequest",
@@ -317,9 +296,10 @@ export class ConnectionManager {
                 },
                 body: { request }
             });
-            return await auditConn.send(message);
+            const reMsg = await this.gatewayPivot.sendToServer(message) as Message;
+            return typeof reMsg?.body == 'object' && reMsg.body != null;
         }
-        return true;
+        return false;
     }
 
     /** 审查连接是否有效 */
@@ -328,7 +308,6 @@ export class ConnectionManager {
         const auditConn = this.get(auditPivotId);
         if (auditConn) {
             const message = new Message({
-                senderId: gatewayPivot.pivotId,
                 receiverId: auditPivotId,
                 payload: {
                     type: "auditConnection",
@@ -337,7 +316,7 @@ export class ConnectionManager {
                 },
                 body: { connection, request }
             });
-            return await auditConn.send(message);
+            return await this.gatewayPivot.sendToServer(message) as Message;
         }
     }
 
@@ -349,19 +328,16 @@ export class ConnectionManager {
     private _startTimers(pivotId: string, connection: Connection): void {
         connection.heartbeatTimer = setInterval(() => {
             // 心跳检测：调用 send 发送心跳消息
-            connection.send(new Message({
-                senderId: gatewayPivot.pivotId,
+            this.gatewayPivot.sendToServer(new Message({
                 receiverId: pivotId,
                 payload: {
                     type: "heartbeat",
                     timestamp: Date.now()
                 }
-            })).catch(() => { });
+            })).catch(err => { });
         }, this.heartbeatInterval);
 
         connection.timeoutTimer = setTimeout(() => {
-            // TODO 这个 onHeartbeatTimeout 不清楚是干什么用的，似乎没有被创建过
-            this.handlers.onHeartbeatTimeout?.(pivotId);
             this.removeConnection(pivotId);
         }, this.pivotTimeout);
     }
@@ -409,7 +385,6 @@ export class ConnectionManager {
         if (!this.pluginPivotId) throw new Error("未配置路由插件 pivot");
 
         const pluginMsg = new Message({
-            senderId: gatewayPivot.pivotId,
             receiverId: this.pluginPivotId,
             // 用于全局追踪，taskId 需要重新生成，因为他不是这一轮次消息的id
             traceId: message.traceId,
@@ -434,11 +409,15 @@ export class ConnectionManager {
         const conn = this.get(pivotId);
         if (conn) {
             // 统一使用 send 方法，支持同步返回结果
-            return await conn.send(message);
-        }
-        console.log('连接不存在，等待连接建立后重试')
+            // 如果发送失败则放到下方异步等待发送结果
+            try {
+                return await conn.send(message);
+            } catch (err) {
+                console.warn('进入等待, 因为发送失败', err);
+            }
+        } else console.log(pivotId, '进入等待, 因为连接不存在');
 
-        // 连接不存在，等待连接建立后重试
+        // 连接不存在或首次发送失败时，进入等待连接建立后重试
         return new Promise((resolve, reject) => {
             // 如果不存在则创建一个空数组
             if (!this.waitSends[pivotId]) {
@@ -451,7 +430,7 @@ export class ConnectionManager {
                 resolve,
                 reject,
                 async routeTo(conn: Connection) {
-                    // 因为有可能是连接有异常导致发送失败，所以不能在这里处理失败信息
+                    // 因为有可能是连接有异常导致发送失败，所以不能在这里忽略失败信息，应当将失败信息传出
                     return await conn.send(this.message).then(re => resolve(re));
                 }
             });
@@ -459,10 +438,16 @@ export class ConnectionManager {
     }
 
     /**
+     * 统一处理业务消息钩子，专门用于给外部重写，从而实现自定义消息处理机制
+     * @returns 发送消息，返回发送结果，sync同步状态下返回目标结果
+     */
+    async handleBizMessageHook(message: Message): Promise<unknown> {
+        return this.handleBizMessage(message)
+    }
+
+    /**
      * 统一处理业务消息
-     * - pivots 类型：查询支点列表
-     * - 其他类型：路由到目标支点处理
-     * @returns pivots 查询返回支点列表，其他返回路由结果
+     * @returns 发送消息，返回发送结果，sync同步状态下返回目标结果
      */
     async handleBizMessage(message: Message): Promise<unknown> {
         try {
@@ -480,23 +465,28 @@ export class ConnectionManager {
                 return await this.requestTo(targetPivotId, message);
             } else {
                 // 异步进行响应
-                this.requestTo(targetPivotId, message);
+                this.requestTo(targetPivotId, message).catch(err => {
+                    // 因为下方已经return，导致已经被响应过一次
+                    // 所以此时只能做失败通知
+                    console.error('x✉', message.senderId, '->', message.receiverId, err);
+                    this.gatewayPivot.sendToServer(new Message({
+                        ...message,
+                        receiverId: message.senderId,
+                        payload: new MessagePayload({
+                            ...message.payload,
+                            type: 'error'
+                        })
+                    })).catch(e => {
+                        // NOTE 网关发送消息给源头失败，此时为双方均异常时，丢弃错误信息
+                    });
+                });
                 return { status: "accepted", taskId: message.payload?.taskId };
             }
         } catch (err) {
+            console.error('x✉', message.senderId, '->', message.receiverId, err);
             const errorMsg = err instanceof Error ? err.message : String(err);
             return { status: "error", taskId: message.payload?.taskId, error: errorMsg };
         }
-    }
-
-    /**
-     * 统一处理业务消息钩子，专门用于给外部重写，从而实现自定义消息处理机制
-     * - pivots 类型：查询支点列表
-     * - 其他类型：路由到目标支点处理
-     * @returns pivots 查询返回支点列表，其他返回路由结果
-     */
-    async handleBizMessageHook(message: Message): Promise<unknown> {
-        return this.handleBizMessage(message)
     }
     // #endregion 统一发送消息
 }

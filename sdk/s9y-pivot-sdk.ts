@@ -32,20 +32,12 @@ interface PendingRequest {
 
 // #endregion 类型定义
 // #region SDK基类
-/** sdk错误 */
-export class PivotError extends Error {
-    public code: number;
-
-    constructor(message: string | undefined, code: number) {
-        super(message);
-        this.code = code;
-        this.name = 'PivotError';
-    }
-}
 
 export type S9yPivotOptions = PivotOptions & {
     /** 请求超时时间 */
     requestTimeout?: number;
+    /** 收到对方主动推送的消息，子类按需 override */
+    onMessage?: (message: Message) => Promise<Message | void>
 };
 export abstract class S9yPivot extends Pivot {
     /** 请求超时时间 */
@@ -56,6 +48,7 @@ export abstract class S9yPivot extends Pivot {
 
     constructor(pivot: S9yPivotOptions) {
         super(pivot);
+        if (pivot.onMessage) this.onMessage = pivot.onMessage;
         this.requestTimeout = pivot.requestTimeout ?? 30_000;
     }
 
@@ -66,30 +59,28 @@ export abstract class S9yPivot extends Pivot {
     // ─── 子类可选 override ───
     /** 收到对方主动推送的消息，子类按需 override */
     protected async onMessage(message: Message): Promise<Message | void> { }
-    /** 连接建立后的回调 */
-    protected async onConnected() { }
-    /** 连接断开后的回调 */
-    protected async onDisconnected() { }
+    /** 建立连接的方法 */
+    protected async onConnect() { }
+    /** 断开连接的方法 */
+    protected async onDisconnect() { }
 
     // ─── 公共接口 ───
 
     /** 
-     * 连接到网关
-     * @deprecated 暂时没用上
+     * pivot主动连接到网关
      */
     async connect(): Promise<void> {
+        this.onConnect();
         this.connected = true;
-        this.onConnected();
     }
 
     /** 
-     * 断开连接
-     * @deprecated 暂时没用上
+     * pivot主动断开连接
      */
     async disconnect(): Promise<void> {
+        this.onDisconnect();
         this.connected = false;
         this._rejectAllPending("SDK 已断开连接");
-        this.onDisconnected();
     }
 
     /** 基于Message对象创建挂起id */
@@ -100,7 +91,10 @@ export abstract class S9yPivot extends Pivot {
     async sendToServer<T = unknown>(options: MessageOptions): Promise<T> {
         options.senderId = this.pivotId;
         const message: Message = new Message(options);
-
+        // 如果还没有连接则尝试连接
+        if (!this.connected) {
+            await this.connect();
+        }
         if (options.payload?.sync) {
             const autoReceiverId = this.createAutoReceiverIdByMessage(message);
             // 同步模式，消息发送到服务器后等待目标支点处理完成并响应结果
