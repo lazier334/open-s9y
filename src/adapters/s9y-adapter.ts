@@ -97,11 +97,11 @@ export abstract class S9yAdapter {
 
     /** 构建 Message 使用传入值, pivotId需要先注册存在缓存 */
     createMessage(mp: MessageParams): Message {
-        const cached = this.getConnectionCached(mp.pivotId);
+        const cached = this.connections.get(mp.pivotId) || this.getConnectionCached(mp.pivotId);
         // 环境变量控制：是否允许未注册的客户端发送消息
         const allowUnregistered = process.env.ALLOW_UNREGISTERED_SEND === 'true';
         if (!cached && !allowUnregistered) {
-            throw new AdapterError('当前连接未注册, 无法创建消息!', 405);
+            throw new AdapterError('当前连接未注册, 禁止创建消息!', 405);
         }
         const message: Message = new Message({
             // 需要保留原始的信息

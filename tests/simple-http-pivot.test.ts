@@ -20,7 +20,7 @@ const pivot = new HttpPivot({
     console.log('发起同步消息');
     let re = await pivot.sendToServer(new Message({
         receiverId: 'test',
-        body: 'hey!',
+        body: 'sync hey!',
         payload: new MessagePayload({
             sync: true
         })
