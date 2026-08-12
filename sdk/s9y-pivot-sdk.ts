@@ -70,7 +70,7 @@ export abstract class S9yPivot extends Pivot {
      * pivot主动连接到网关
      */
     async connect(): Promise<void> {
-        this.onConnect();
+        await this.onConnect();
         this.connected = true;
     }
 
@@ -78,7 +78,7 @@ export abstract class S9yPivot extends Pivot {
      * pivot主动断开连接
      */
     async disconnect(): Promise<void> {
-        this.onDisconnect();
+        await this.onDisconnect();
         this.connected = false;
         this._rejectAllPending("SDK 已断开连接");
     }

@@ -79,12 +79,12 @@ export class HttpPivot extends S9yPivot {
         if (this.enableLongPoll) {
             this._startLongPoll();
         }
-        debug(`HttpSDK: 支点 ${this.pivotId} 已就绪（本地模式）`);
+        debug(`HttpSDK: 支点 ${this.pivotId} 已就绪（http模式）`);
     }
 
     protected async onDisconnect() {
         this._stopLongPoll();
-        debug(`HttpSDK: 支点 ${this.pivotId} 已断开（本地模式）`);
+        debug(`HttpSDK: 支点 ${this.pivotId} 已断开（http模式）`);
     }
 
     // ─── 内部方法 ───

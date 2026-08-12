@@ -7,7 +7,7 @@
  * - 断线自动重连（可选）
  */
 import { S9yPivot, type S9yPivotOptions } from "./s9y-pivot-sdk.ts";
-import { Message } from "./type.ts";
+import { Message, debug } from "./type.ts";
 import WebSocket from "ws";
 export * from './type.ts';
 
@@ -34,27 +34,73 @@ export interface WsPivotOptions extends S9yPivotOptions {
 export class WsPivot extends S9yPivot {
     private ws: WebSocket | null = null;
     private heartbeatTimer?: NodeJS.Timeout;
-    private readonly url: string;
+    private readonly gatewayUrl: string;
     private readonly headers: Record<string, string>;
     private readonly heartbeatInterval: number;
+    private _waitConnection: boolean = false;
 
     constructor(options: WsPivotOptions) {
         super(options);
-        this.heartbeatInterval = options.heartbeatInterval ?? 30_000;
-        this.url = options.gatewayUrl;
+        this.heartbeatInterval = options.heartbeatInterval ?? 60_000;
+        this.gatewayUrl = options.gatewayUrl;
         this.headers = options.headers || {};
     }
 
-    // ─── 子类实现 ───
-
-    protected async doConnect(): Promise<void> {
+    protected async onSend(message: Message): Promise<unknown> {
+        if (this.checkDisConnection()) {
+            throw new Error("WsSDK: WebSocket 未连接");
+        }
         return new Promise((resolve, reject) => {
-            this.ws = new WebSocket(this.url, { headers: this.headers });
+            this.ws!.send(JSON.stringify(message), (err) => {
+                if (err) reject(err);
+                else resolve(undefined);
+            });
+        });
+    }
+
+    // ─── 子类实现 ───
+    protected async onConnect() {
+        // 连接并注册
+        await this._register();
+        debug(`WsSDK: 支点 ${this.pivotId} 已就绪（ws模式）`);
+    }
+    protected async onDisconnect() {
+        this._stopHeartbeat();
+
+        if (this.ws) {
+            this.ws.close(1000, "客户端主动断开");
+            this.ws = null;
+        }
+        debug(`WsSDK: 支点 ${this.pivotId} 已断开（ws模式）`);
+    }
+
+    // ─── 内部方法 ───
+    private checkDisConnection() {
+        return !this.ws || this.ws.readyState !== WebSocket.OPEN
+    }
+
+    /**
+     * 连接ws并注册
+     */
+    private async _register(): Promise<void> {
+        return new Promise((resolve, reject) => {
+            if (this._waitConnection || !this.checkDisConnection()) {
+                return console.log('WsSDK: 已连接或正在尝试连接');
+            }
+            this._waitConnection = true;
+            const wsUrl = new URL(this.gatewayUrl);
+            wsUrl.searchParams.set("pivotId", this.pivotId);
+            wsUrl.searchParams.set("name", this.name);
+            wsUrl.searchParams.set("type", this.type);
+            if (this.capabilities?.length) wsUrl.searchParams.set("capabilities", this.capabilities.join(","));
+            if (this.priceTable) wsUrl.searchParams.set("priceTable", this.priceTable);
+            this.ws = new WebSocket(wsUrl.href, { headers: this.headers });
 
             this.ws.on("open", () => {
                 this._startHeartbeat();
-                console.log(`[WsSDK] 已连接到 ${this.url}`);
+                console.log(`WsSDK: 已连接到 ${wsUrl.href}`);
                 resolve();
+                this._waitConnection = false;
             });
 
             this.ws.on("message", (data: Buffer | ArrayBuffer | Buffer[]) => {
@@ -67,59 +113,21 @@ export class WsPivot extends S9yPivot {
                     const msg = JSON.parse(text) as Message;
                     this.handleIncoming(msg);
                 } catch (e) {
-                    console.error("[WsSDK] 消息解析失败:", e);
+                    console.error("WsSDK: 消息解析失败:", e);
                 }
             });
 
             this.ws.on("close", (code, reason) => {
                 this._stopHeartbeat();
-                console.log(`[WsSDK] 连接已断开: code=${code}, reason=${reason}`);
+                console.log(`WsSDK: 连接已断开: ${JSON.stringify({ code, reason })}`);
             });
 
             this.ws.on("error", (err) => {
-                console.error("[WsSDK] 连接错误:", err);
+                console.error("WsSDK: 连接错误:", err);
                 reject(err);
+                this._waitConnection = false;
             });
         });
-    }
-
-    protected doDisconnect(): void {
-        this._stopHeartbeat();
-        if (this.ws) {
-            this.ws.close(1000, "客户端主动断开");
-            this.ws = null;
-        }
-    }
-
-    protected async onSend(message: Message): Promise<unknown> {
-        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-            throw new Error("[WsSDK] WebSocket 未连接");
-        }
-
-        return new Promise((resolve, reject) => {
-            this.ws!.send(JSON.stringify(message), (err) => {
-                if (err) reject(err);
-                else resolve(undefined);
-            });
-        });
-    }
-
-    protected async onConnect() {
-        // 发送注册消息
-        this._sendRegister();
-    }
-
-    // ─── 内部方法 ───
-
-    private _sendRegister(): void {
-        const registerMsg = {
-            pivotId: this.pivotId,
-            type: this.type,
-            name: this.name,
-            capabilities: this.capabilities,
-            priceTable: this.priceTable,
-        };
-        this.ws?.send(JSON.stringify(registerMsg));
     }
 
     private _startHeartbeat(): void {

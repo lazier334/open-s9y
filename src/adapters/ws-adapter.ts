@@ -1,8 +1,8 @@
 import type { WebSocket } from "ws";
-import type { Message } from "../../sdk/type.ts";
 import type { IncomingMessage } from "node:http";
 import type { GatewayServer } from "../server.ts";
-import type { ConnectionParams } from "./s9y-adapter.ts";
+import type { ConnectionOptions, AdapterError } from "./s9y-adapter.ts";
+import { Message } from "../../sdk/type.ts";
 import { S9yAdapter } from "./s9y-adapter.ts";
 
 /**
@@ -21,114 +21,68 @@ export class WsAdapter extends S9yAdapter {
                     throw new Error('身份验证失败');
                 }
             } catch {
-                socket.close(1008, '身份验证失败');
-                return;
+                return socket.close(1008, JSON.stringify({ code: 1008, msg: '身份验证失败' }));
             }
-
-            let pivotId: string | undefined;
+            // 此时直接注册
+            const cp = this._parseQuery(request.url || '');
+            // 注册连接
+            cp.send = async (message: Message) => socket.send(JSON.stringify(message));
+            cp.adapterType = 'ws';
+            const conn = await this.registerConnection(cp);
 
             socket.on("message", async (raw: Buffer) => {
-                let message = {} as Message;
-                let cp: ConnectionParams | undefined;
                 try {
                     const data = JSON.parse(raw.toString());
-
-                    // 检查是否是标准 Message 格式（有 senderId 字段）
-                    if (data.senderId && data.traceId) {
-                        // 标准 Message 格式
-                        message = data as Message;
-
-                        // 如果是注册消息，构建 ConnectionParams
-                        if (message.type === "register") {
-                            cp = {
-                                pivotId: message.senderId,
-                                type: message.payload?.type as any || "other",
-                                name: message.payload?.name as string,
-                                capabilities: message.payload?.capabilities as string[],
-                                priceTable: message.payload?.priceTable as string,
-                            } as ConnectionParams;
-                        }
-                    } else {
-                        // ConnectionParams 格式（旧格式）
-                        cp = data as ConnectionParams;
-                        message = this.createMessage(cp);
-                    }
-
-                    console.log("[WsAdapter DEBUG] 收到消息:", JSON.stringify(message).substring(0, 200));
+                    const message = new Message(data);
 
                     // 心跳消息
-                    if (message.type === "heartbeat") {
-                        if (pivotId) this.server.connections.updateHeartbeat(pivotId);
+                    if (message.payload.type === "heartbeat") {
+                        if (conn?.pivotId) this.server.connections.updateHeartbeat(conn?.pivotId);
                         return;
                     }
 
-                    // 支点注册（WebSocket）
-                    if (message.type === "register") {
-                        // WS 的 send 函数：通过 WebSocket 发送消息
-                        const send = async (msg: Message): Promise<unknown> => {
-                            if (socket.readyState !== 1) {
-                                throw new Error("WebSocket 未连接");
-                            }
-                            socket.send(JSON.stringify(msg));
-                            return undefined;
-                        };
-                        // 注册连接
-                        cp!.send = send;
-                        cp!.adapterType = 'ws';
-                        if (typeof cp!.options != 'object') cp!.options = {};
-                        try {
-                            const conn = await this.registerConnection(cp!);
-                        } catch (err) {
-                            // @ts-ignore
-                            socket.close(1008, String(err?.message || err))
-                        }
-                        return;
-                    }
-
-                    // 统一业务消息处理
-                    const result = await this.handleMessage(message);
-                    // TODO 推送消息完成后需要把结果弄成 Message 来响应
-                    if (result !== undefined && message.senderId) {
-                        const response: Message = {
-                            senderId: "gateway",
-                            receiverId: message.senderId,
-                            type: message.type,
-                            payload: { data: result },
-                            traceId: message.traceId,
-                            timestamp: Date.now(),
-                        };
-                        await this.server.connections.requestTo(message.senderId, response);
-                    }
+                    // 强制异步处理消息，响应消息会走send通道，这里无需响应内容
+                    message.payload.sync = false;
+                    this.handleMessage(message);
                 } catch (err) {
-                    if (message.senderId) {
-                        try {
-                            const errorResponse: Message = {
-                                senderId: "gateway",
-                                receiverId: message.senderId,
-                                type: message.type,
-                                payload: { error: err instanceof Error ? err.message : String(err) },
-                                traceId: message.traceId,
-                                timestamp: Date.now(),
-                            };
-                            await this.server.connections.requestTo(message.senderId, errorResponse);
-                        } catch {
-                            console.error("消息处理异常:", err);
-                        }
-                    }
+                    console.log('消息接收失败:', err);
+                    const error = err as AdapterError;
+                    const result = { code: error?.code || 503, msg: String(error?.message ?? error) };
+                    return socket.send(JSON.stringify(result));
                 }
             });
 
             socket.on("close", () => {
-                if (pivotId) {
-                    this.server.connections.removeConnection(pivotId);
+                if (conn?.pivotId) {
+                    this.server.connections.removeConnection(conn?.pivotId);
                 }
             });
 
             socket.on("error", () => {
-                if (pivotId) {
-                    this.server.connections.removeConnection(pivotId);
+                if (conn?.pivotId) {
+                    this.server.connections.removeConnection(conn?.pivotId);
                 }
             });
         });
+    }
+
+    /**
+     * 解析 URL 中的 query string
+     * - _json 字段视为 encodeURIComponent 编码的 JSON 对象，作为基础
+     * - 其余字段逐项 decodeURIComponent 后尝试 JSON.parse，失败则保留原始字符串
+     * - 返回 { ..._json, ...flat }（flat 覆盖 _json）
+     */
+    _parseQuery(url: string): ConnectionOptions {
+        const si = url.indexOf("?");
+        if (si === -1) return {} as ConnectionOptions;
+        const params = new URLSearchParams(url.slice(si));
+        const flat: Record<string, unknown> = {};
+        params.forEach((v, k) => {
+            try { flat[k] = JSON.parse(v); } catch { flat[k] = v; }
+        });
+        const jsonObj = typeof flat._json === "object" && flat._json !== null
+            ? flat._json as Record<string, unknown>
+            : {};
+        return { ...jsonObj, ...flat } as ConnectionOptions;
     }
 }

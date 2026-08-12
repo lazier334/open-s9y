@@ -445,6 +445,20 @@ export class ConnectionManager {
         return this.handleBizMessage(message)
     }
 
+    /** 发送消息失败时生成错误消息，用于给网关发送给源头，同时记录发送错误日志 */
+    private sendMessageError(message: Message, error: unknown) {
+        console.error('x✉', message.senderId, '->', message.receiverId, error);
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        return new Message({
+            ...message,
+            receiverId: message.senderId,
+            payload: new MessagePayload({
+                ...message.payload,
+                type: 'error'
+            }),
+            error: errorMsg
+        })
+    }
     /**
      * 统一处理业务消息
      * @returns 发送消息，返回发送结果，sync同步状态下返回目标结果
@@ -466,26 +480,15 @@ export class ConnectionManager {
             } else {
                 // 异步进行响应
                 this.requestTo(targetPivotId, message).catch(err => {
-                    // 因为下方已经return，导致已经被响应过一次
-                    // 所以此时只能做失败通知
-                    console.error('x✉', message.senderId, '->', message.receiverId, err);
-                    this.gatewayPivot.sendToServer(new Message({
-                        ...message,
-                        receiverId: message.senderId,
-                        payload: new MessagePayload({
-                            ...message.payload,
-                            type: 'error'
-                        })
-                    })).catch(e => {
+                    // 发送失败时，通知源头消息发送失败
+                    this.gatewayPivot.sendToServer(this.sendMessageError(message, err)).catch(e => {
                         // NOTE 网关发送消息给源头失败，此时为双方均异常时，丢弃错误信息
                     });
                 });
                 return { status: "accepted", taskId: message.payload?.taskId };
             }
         } catch (err) {
-            console.error('x✉', message.senderId, '->', message.receiverId, err);
-            const errorMsg = err instanceof Error ? err.message : String(err);
-            return { status: "error", taskId: message.payload?.taskId, error: errorMsg };
+            return this.sendMessageError(message, err);
         }
     }
     // #endregion 统一发送消息
