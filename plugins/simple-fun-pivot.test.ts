@@ -1,11 +1,11 @@
 import { FunPivot } from "../sdk/fun-pivot-sdk.ts";
 
 export const pivot = new FunPivot({
-    pivotId: 'demo',
+    pivotId: 'fun',
     type: 'user',
-    capabilities: ['demo'],
+    capabilities: ['fun'],
     async onMessage(message) {
-        console.log('demo收到消息', message)
+        console.log('fun收到消息', message)
     },
 });
 

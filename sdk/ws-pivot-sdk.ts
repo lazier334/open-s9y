@@ -6,9 +6,9 @@
  * - 自动心跳保活
  * - 断线自动重连（可选）
  */
-import { S9yPivot, type S9yPivotOptions } from "./s9y-pivot-sdk.ts";
-import { Message, debug } from "./type.ts";
 import WebSocket from "ws";
+import { Message, debug } from "./type.ts";
+import { S9yPivot, type S9yPivotOptions } from "./s9y-pivot-sdk.ts";
 export * from './type.ts';
 
 

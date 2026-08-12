@@ -1,11 +1,10 @@
 /**
- * TODO 这个支点可能不完整，还需要后面继续调试连通性
- * TODO 这个支点可能不完整，还需要后面继续调试连通性
- * TODO 这个支点可能不完整，还需要后面继续调试连通性
+ * 身份验证Pivot  
+ * 用于校验接入请求的有效性, fun模式不会进行验证
  */
-import type { Connection } from "../src/connection.ts";
-import type { IncomingMessage } from "node:http";
 import type { FastifyRequest } from "fastify";
+import type { IncomingMessage } from "node:http";
+import type { Connection } from "../src/connection.ts";
 import { FunPivot, Message, MessagePayload } from "../sdk/fun-pivot-sdk.ts";
 
 const pluginPivotId = process.env.AUDIT_PIVOT_ID ?? "audit";

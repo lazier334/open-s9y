@@ -4,9 +4,6 @@
  * 设计原则：
  * - 基类负责消息发送/接收/匹配的核心逻辑
  * - 子类通过 override 处理具体协议的消息通道方法和消息分发
- * 
- * TODO:
- * * 有一些挂起请求、任务相关的，后面看看要怎么处理
  */
 import type { PivotOptions, MessageOptions } from './type.ts';
 import { Pivot, Message, debug } from './type.ts';

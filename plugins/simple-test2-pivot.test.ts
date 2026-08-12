@@ -1,12 +1,11 @@
 import { type FunAdapterType } from "../src/adapters/fun-adapter.ts";
-import { FunPivot } from "../sdk/fun-pivot-sdk.ts";
-import { MessagePayload } from "../sdk/type.ts";
+import { FunPivot, MessagePayload } from "../sdk/fun-pivot-sdk.ts";
 
 export default (funAdapter: FunAdapterType) => {
     const pivot = new FunPivot({
-        pivotId: 'test2',
+        pivotId: 'fun-test2',
         type: 'user',
-        capabilities: ['test2'],
+        capabilities: ['fun-test2'],
         async onMessage(message) {
             console.log('t2收到消息', message)
         }
@@ -14,7 +13,7 @@ export default (funAdapter: FunAdapterType) => {
     setTimeout(() => {
         pivot.sendToServer({
             payload: new MessagePayload({
-                capabilities: ['test'],
+                capabilities: ['fun-test'],
                 sync: true
             }),
             // receiverId: 'test'  

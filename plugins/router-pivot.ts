@@ -1,5 +1,4 @@
-import { FunPivot } from "../sdk/fun-pivot-sdk.ts";
-import { Message, MessagePayload } from "../sdk/type.ts";
+import { FunPivot, Message } from "../sdk/fun-pivot-sdk.ts";
 
 const pluginPivotId = process.env.PLUGIN_PIVOT_ID ?? "router";
 // 负载均衡使用

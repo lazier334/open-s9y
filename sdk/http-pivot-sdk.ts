@@ -6,7 +6,7 @@
  * - 支持长轮询接收消息
  * - 适合无状态部署场景
  */
-import { debug, Message, MessagePayload, PivotError } from './type.ts';
+import { debug, Message } from './type.ts';
 import { S9yPivot, type S9yPivotOptions } from './s9y-pivot-sdk.ts';
 export * from './type.ts';
 

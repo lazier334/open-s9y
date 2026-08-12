@@ -1,12 +1,9 @@
-<div style="position: relative; text-align: center; margin: 20px 0;">
-  <!-- Logo 图片居中 -->
-  <img src="./docs/logo.png" alt="logo" height="200" style="display: block; margin: 0 auto;" />
-  
-  <!-- 语言切换链接：固定在右下角 -->
-  <div style="position: absolute; bottom: 16px; right: 24px; background: rgba(255,255,255,0.75); padding: 4px 16px; border-radius: 20px; font-size: 14px; backdrop-filter: blur(2px);">
-    <a href="README.EN.md">English</a> | <b>中文</b>
-  </div>
-</div>
+<p align="center">
+  <img src="./docs/logo.png" alt="logo" height="200" />
+</p>
+<p align="right">
+  <a href="README.EN.md">English</a> | <b>中文</b>
+</p>
 
 <h1 align="center" id="title">s9y (Singularity / 奇点)</h1>
 
@@ -24,7 +21,7 @@
 ---
 
 ## s9y、open-s9y、open-s9y-auto 的关系是什么？
-`open-s9y项目`是`s9y协议`的一个协议实现基础程序。  
+**`open-s9y项目`** 是 **`s9y协议`** 的一个协议实现基础程序。  
 <a href="https://github.com/lazier334/open-s9y-auto" target="_blank">open-s9y-auto</a> 是 <a href="https://github.com/lazier334/open-s9y" target="_blank">open-s9y</a> 的拓展程序。
 
 ## s9y 是什么？

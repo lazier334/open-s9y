@@ -18,7 +18,7 @@
   },
   "main": "src/index.ts",
   "scripts": {
-    "start": "npm i && node --env-file=.env --experimental-strip-types src/index.ts",
+    "start": "node -e \"require('fs').existsSync('node_modules') || require('child_process').execSync('npm i', {stdio: 'inherit'})\" && node --env-file=.env --experimental-strip-types src/index.ts",
     "dev": "node --env-file=.env.development --experimental-strip-types src/index.ts"
   },
   "dependencies": {

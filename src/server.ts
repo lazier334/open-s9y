@@ -1,4 +1,4 @@
-import type { Server } from "http";
+import type { Server } from "node:http";
 import type { Message } from "../sdk/type.ts";
 import type { FastifyInstance } from "fastify";
 import type { FunAdapterType } from "./adapters/fun-adapter.ts";

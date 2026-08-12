@@ -1,12 +1,9 @@
-<div style="position: relative; text-align: center; margin: 20px 0;">
-  <!-- Logo 图片居中 -->
-  <img src="./docs/logo.png" alt="logo" height="200" style="display: block; margin: 0 auto;" />
-  
-  <!-- 语言切换链接：固定在右下角 -->
-  <div style="position: absolute; bottom: 16px; right: 24px; background: rgba(255,255,255,0.75); padding: 4px 16px; border-radius: 20px; font-size: 14px; backdrop-filter: blur(2px);">
+<p align="center">
+  <img src="./docs/logo.png" alt="logo" height="200" />
+</p>
+<p align="right">
     <b>English</b> | <a href="README.md">中文</a>
-  </div>
-</div>
+</p>
 
 <h1 align="center" id="title">s9y (Singularity)</h1>
 
@@ -24,7 +21,7 @@
 ---
 
 ## What is the relationship between s9y, open-s9y, and open-s9y-auto?
-`open-s9y` is a foundational implementation of the `s9y protocol`.  
+**`open-s9y`** is a foundational implementation of the **`s9y protocol`**.  
 <a href="https://github.com/lazier334/open-s9y-auto" target="_blank">open-s9y-auto</a> is an extension of <a href="https://github.com/lazier334/open-s9y" target="_blank">open-s9y</a>.
 
 ## What is s9y?

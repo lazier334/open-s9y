@@ -1,8 +1,9 @@
 import type { FastifyRequest } from "fastify";
 import type { IncomingMessage } from "node:http";
 import type { GatewayServer } from "../server.ts";
-import { Message, MessagePayload, Pivot, type MessageOptions, type PivotOptions } from "../../sdk/type.ts";
+import type { MessageOptions, PivotOptions } from "../../sdk/type.ts";
 import type { Connection, AdapterType, ConnectionManager } from "../connection.ts";
+import { Message, MessagePayload, Pivot } from "../../sdk/type.ts";
 
 export * from "../../sdk/s9y-pivot-sdk.ts";
 

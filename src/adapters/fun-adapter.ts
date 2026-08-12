@@ -1,6 +1,6 @@
 import type { GatewayServer } from "../server.ts";
 import type { Connection } from "../connection.ts";
-import type { Message, } from "../../sdk/type.ts";
+import type { Message } from "../../sdk/type.ts";
 import type { FunPivot } from "../../sdk/fun-pivot-sdk.ts";
 import { S9yAdapter } from "./s9y-adapter.ts";
 
