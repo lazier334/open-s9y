@@ -1,14 +1,16 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { GatewayServer, type GatewayServerOptions } from "./server.ts";
+export * from './adapters/s9y-adapter.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-export default async function main(options: GatewayServerOptions) {
+export default server;
+export async function server(options: GatewayServerOptions) {
     try {
         // 加载适配器
-        const server = new GatewayServer({
+        const gateway = new GatewayServer({
             port: process.env.GATEWAY_PORT ? Number(process.env.GATEWAY_PORT) : 3000,
             heartbeatInterval: 30_000,
             pivotTimeout: 60_000,
@@ -23,10 +25,11 @@ export default async function main(options: GatewayServerOptions) {
         ].forEach((mod: object) => {
             // 拿到导出列表里以 Adapter 结尾的函数，然后惊进行注册
             Object.values(mod).filter(adapter => typeof adapter === "function" && adapter.name?.endsWith("Adapter") && adapter.name != 'S9yAdapter').forEach(adapterClass => {
-                server.loadAdapter(adapterClass);
+                gateway.loadAdapter(adapterClass);
             });
         });
-        return server;
+
+        return gateway;
     } catch (err) {
         console.error("s9y启动失败:", err);
         process.exit(1);
