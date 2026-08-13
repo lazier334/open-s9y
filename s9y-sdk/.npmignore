@@ -1,0 +1,30 @@
+# 源代码
+*.ts
+!*.d.ts
+
+# 配置文件
+tsconfig.json
+tsup.config.ts
+BUILD_PLAN.md
+
+# 依赖目录
+node_modules/
+
+# 构建临时文件
+*.tsbuildinfo
+
+# 环境文件
+.env
+.env.*
+
+# 日志
+*.log
+npm-debug.log*
+
+# 编辑器配置
+.vscode/
+.idea/
+
+# 系统文件
+.DS_Store
+Thumbs.db

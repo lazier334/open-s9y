@@ -19,7 +19,9 @@
   "main": "src/index.ts",
   "scripts": {
     "start": "npm i && node --env-file=.env --experimental-strip-types src/index.ts",
-    "dev": "node --env-file=.env.development --experimental-strip-types src/index.ts"
+    "dev": "node --env-file=.env.development --experimental-strip-types src/index.ts",
+    "build:sdk": "cd s9y-sdk && npm install && npm run build",
+    "clean:sdk": "cd s9y-sdk && npm run clean"
   },
   "dependencies": {
     "fastify": "^5.8.4",

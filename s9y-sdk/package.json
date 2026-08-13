@@ -1,0 +1,83 @@
+{
+  "name": "@s9y/sdk",
+  "version": "1.0.0",
+  "description": "S9y 支点通信 SDK - 支持 HTTP 和 WebSocket 双协议",
+  "homepage": "https://github.com/lazier334/open-s9y#readme",
+  "bugs": {
+    "url": "https://github.com/lazier334/open-s9y/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lazier334/open-s9y.git",
+    "directory": "s9y-sdk"
+  },
+  "license": "MIT",
+  "author": "lazier334",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./http": {
+      "import": {
+        "types": "./dist/http-pivot-sdk.d.ts",
+        "default": "./dist/http-pivot-sdk.js"
+      },
+      "require": {
+        "types": "./dist/http-pivot-sdk.d.cts",
+        "default": "./dist/http-pivot-sdk.cjs"
+      }
+    },
+    "./ws": {
+      "import": {
+        "types": "./dist/ws-pivot-sdk.d.ts",
+        "default": "./dist/ws-pivot-sdk.js"
+      },
+      "require": {
+        "types": "./dist/ws-pivot-sdk.d.cts",
+        "default": "./dist/ws-pivot-sdk.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "keywords": [
+    "s9y",
+    "sdk",
+    "pivot",
+    "gateway",
+    "websocket",
+    "http",
+    "ai",
+    "agent"
+  ],
+  "dependencies": {
+    "ws": "^8.20.0"
+  },
+  "devDependencies": {
+    "tsup": "^8.0.0",
+    "typescript": "^5.0.0",
+    "@types/node": "^25.0.0",
+    "@types/ws": "^8.18.0"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run build"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

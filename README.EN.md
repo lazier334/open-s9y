@@ -1,13 +1,15 @@
-
+<p align="center">
+  <img src="./docs/logo.png" alt="logo" height="200" />
+</p>
 <p align="right">
-  <b>English</b> | <a href="README.md">中文</a>
+    <b>English</b> | <a href="README.md">中文</a>
 </p>
 
 <h1 align="center" id="title">s9y (Singularity)</h1>
 
 <p align="center">
-  <b>A Minimally Complete Recursive Delegation Protocol</b><br>
-  <i>Two primitives. Infinite leverage.</i>
+  <b>Recursive Delegation Protocol</b><br>
+  <i>Two primitives, infinite leverage</i>
 </p>
 
 <p align="center">
@@ -17,118 +19,113 @@
 </p>
 
 ---
-## What is the relationship between `open-s9y` and s9y?
-The `open-s9y project` is an implementation program of the `s9y protocol`.
 
-## What is the relationship between open-s9y and open-s9y-auto?
-[open-s9y](https://github.com/lazier334/open-s9y) is the infrastructure program for <a href="https://github.com/lazier334/open-s9y-auto" target="_blank">open-s9y-auto</a>. For more related content, please refer to the <a href="https://github.com/lazier334/open-s9y-auto" target="_blank">open-s9y-auto project</a>.
-
-## Quick Start open-s9y
-1. Ensure <a href="https://nodejs.org/" target="_blank">NodeJs</a> is installed  
-2. [Download the repository code](https://github.com/lazier334/open-s9y/archive/refs/heads/main.zip) (you can also use tools like <a href="https://git-scm.com/install/windows" target="_blank">Git</a> to clone the code: `git clone https://github.com/lazier334/open-s9y`)  
-3. Start the program using the terminal: `npm start`
+## What is the relationship between s9y, open-s9y, and open-s9y-auto?
+**`open-s9y`** is a foundational implementation of the **`s9y protocol`**.  
+<a href="https://github.com/lazier334/open-s9y-auto" target="_blank">open-s9y-auto</a> is an extension of <a href="https://github.com/lazier334/open-s9y" target="_blank">open-s9y</a>.
 
 ## What is s9y?
 
-s9y is not another API gateway. It is an **organizational protocol** consisting of exactly two primitives:
+s9y is not just another API gateway. It is an **organizational protocol** composed of two primitives:
 
-- **`register(capabilities)`** — "I exist and can be hired."
-- **`push(task)`** — "Execute this."
+- **`register(capabilities)`** — "I exist and can be employed"
+- **`push(task)`** — "Execute this task"
 
-These two primitives are sufficient to express arbitrary recursive delegation networks: AI agents, human organizations, biological systems, or IoT fleets.
+These two primitives are sufficient to express arbitrary recursive delegation networks: AI agents, human organizations, biological systems, or IoT clusters.
+
+## Quick Start with open-s9y
+1. Ensure <a href="https://nodejs.org/" target="_blank">NodeJs</a> is installed
+2. [Download repository code](https://github.com/lazier334/open-s9y/archive/refs/heads/main.zip) (You can also use <a href="https://git-scm.com/install/windows" target="_blank">Git</a> or other tools to pull the code: `git clone https://github.com/lazier334/open-s9y`)
+3. Use the terminal to start the program: `npm start`
 
 ---
 
 ## <a id="philosophy" href="#title">Philosophy: Why Singularity? Why Pivot?</a>
 
-### The False Singularity vs. The True Singularity
+### Singularity
 
-The AI industry chases a "singularity" of intelligence—AGI surpassing humanity. This is a **phenomenological singularity**: unverifiable, unpredictable.
+s9y refers to a **structural singularity**:
 
-s9y defines a **structural singularity**:
+> When a set of communication primitives (`register` / `push`) can uniformly describe everything from 1B parameter models to civilizations of 7 billion people, from neurons to automotive ECUs, **the complexity of the rules no longer grows with the scale of the system** — it remains exactly 2 actions.
 
-> When a pair of communication primitives (`register` / `push`) can describe everything from a 1B-parameter model to a 7-billion-person civilization, from a neuron to a car ECU, **descriptive complexity ceases to scale linearly with system size**.
+In other words, the **cost** of describing any system no longer depends on how large the system is, but on whether these primitives can capture its essential interactions. After crossing this threshold, control equations from different domains are unified, and previously disparate phenomena can be modeled using the same language.
 
-This is the mathematical definition of a singularity: at a critical threshold, the governing equation undergoes a phase transition, unifying previously disparate phenomena.
+| Domain                | Before s9y                         | After s9y           |
+| --------------------- | ---------------------------------- | ------------------- |
+| AI Engineering        | OpenAI API / LangChain / AutoGen   | `register` + `push` |
+| Social Simulation     | NetLogo / MASON proprietary syntax | `register` + `push` |
+| IoT Control           | MQTT / CoAP / HTTP mixed usage     | `register` + `push` |
+| Distributed Computing | RPC / Message Queues / Serverless  | `register` + `push` |
+ 
+**The true singularity is not "one model does everything," but "all systems can finally speak the same language."**
 
-| Domain                | Before s9y                       | After s9y           |
-| --------------------- | -------------------------------- | ------------------- |
-| AI Engineering        | OpenAI API / LangChain / AutoGen | `register` + `push` |
-| Social Simulation     | NetLogo / MASON DSL              | `register` + `push` |
-| IoT Control           | MQTT / CoAP / HTTP mix           | `register` + `push` |
-| Distributed Computing | RPC / MQ / Serverless            | `register` + `push` |
+### Pivot
 
-**The true singularity is not "one model doing everything." It is "all systems finally speaking the same language."**
+Archimedes said: "Give me a lever long enough and a fulcrum on which to place it, and I shall move the world."
 
-### Pivot: Give Me a Leverage Point
+A physical fulcrum requires three conditions:
+1. **Rigidity** — No deformation, so force can be transmitted
+2. **Locatability** — Knowing where the fulcrum is
+3. **Load-bearing capacity** — Able to withstand the pressure of the lever
 
-Archimedes said: *"Give me a place to stand, and I shall move the earth."*
+s9y's pivot corresponds:
 
-A physical fulcrum requires three properties:
-1. **Rigidity** — No deformation, or force is lost.
-2. **Locatability** — You must know where it stands.
-3. **Load-bearing capacity** — It must withstand the pressure.
+| Physical Fulcrum | s9y Pivot                                                                                                                   |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| **Rigidity**     | **Minimal completeness** of the two primitives — neither added nor removed, the protocol semantics remain rigidly unchanged |
+| **Locatability** | Unique identifier + capability declaration at `register` time — I know where this pivot is and what it can do               |
+| **Load-bearing** | The contract of `push` — I can place a task on it, and it must respond                                                      |
 
-The s9y pivot maps exactly:
-
-| Physical Fulcrum | s9y Pivot                                                                                                    |
-| ---------------- | ------------------------------------------------------------------------------------------------------------ |
-| **Rigidity**     | Minimal completeness of two primitives—no more, no less. Protocol semantics never deform.                    |
-| **Locatability** | Unique identity + capability declaration at `register`. You know where this pivot stands and what it can do. |
-| **Load-bearing** | The `push` contract. You can press a task onto it, and it must respond.                                      |
-
-> **Pivot** is the Minimal Employable Unit in an s9y system. It constitutes a leverage point because (1) it rigidly preserves protocol semantics, (2) it is locatable via capability registration, and (3) it can bear delegated tasks without exposing its internal implementation to the employer (recursive opacity).
+> **Pivot** is the Minimal Employable Unit in the s9y system. It constitutes a lever point because (1) it keeps protocol semantics rigidly unchanged, (2) it is located through capability registration, and (3) it can bear delegated tasks without exposing internal implementation to the employer (recursive opacity).
 
 ### Recursive Leverage: Infinite Extension
 
-Archimedes needed a **fixed** fulcrum. s9y allows **recursive fulcra**—every pivot can itself become a lever, hiring smaller pivots.
+Archimedes' lever requires **a single fixed fulcrum**. s9y allows **recursive fulcrums** — each pivot can itself become a lever, employing smaller pivots.
 
 ```
-The Problem (Earth)
+Earth (problem)
   │
-  └─ Lever ──→ Brain Pivot (Fulcrum)
-                 │
-                 └─ Lever ──→ Code Pivot (Fulcrum)
-                                │
-                                └─ Lever ──→ Linter Pivot (Fulcrum)
+  └─ Lever ──→ Brain pivot (fulcrum)
+                   │
+                   └─ Lever ──→ Code pivot (fulcrum)
+                                    │
+                                    └─ Lever ──→ Syntax checking pivot (fulcrum)
 ```
 
-**Every layer is a fulcrum. Every layer moves the next.**
+**Every level is a fulcrum, and every level leverages the next.**
 
-This is not physical infinity. It is **exponential amplification through recursive delegation**:
-
-- A 3B-parameter "brain" pivot coordinates ten 7B expert pivots.
-- Each 7B pivot delegates to ten 1B tool pivots.
-- Total intelligence coverage: 3B + 10×7B + 100×1B = **173B equivalent capacity**.
-- Yet active parameters at any moment: **sum of the longest path only** (far less than 173B).
+This is not physical infinity, but **capability coverage multiplication through recursive delegation**:
+- A 3B parameter "brain" pivot can coordinate ten 7B expert pivots
+- Each 7B pivot can delegate to ten 1B tool pivots
+- The total schedulable parameter count reaches **173B**, but at any moment only the parameters on the maximum path are active (e.g., 3+7+1=11B) — **achieving large-scale capability coverage while maintaining lightweight execution**.
 
 ---
 
 ## <a id="features" href="#title">Features</a>
 
-### Variable transport layer
+### Pluggable Transport Layer
 
-- **Memory-level communication** — Function calls within the same process (zero-copy, zero latency)
+- **In-memory communication** — In-process function calls (zero-copy, zero-latency)
 - **HTTP** — RESTful delegation across containers or nodes
 - **WebSocket** — Bidirectional streaming, progress push, long-lived sessions
-- **Other** — Just need to be capable of transmitting
+- **Others** — Anything that can transmit
 
-All modes share the **same two primitives**. The transport layer is swappable without touching business logic.
+All modes share **the same set of primitives**. The transport layer is replaceable without modifying business logic.
 
 ---
 
-### What s9y Is Not
+### What s9y Does NOT Do
 
 The power of a minimal protocol comes from **restraint**:
 
-1. **No consensus guarantees** — Conflict arbitration is the brain's responsibility.
-2. **No hard real-time synchronization** — Nanosecond sync requires an additional timing layer.
-3. **No value judgments** — Ethics and legality belong to the organizational layer above.
+1. **No consensus / consistency guarantees** — Conflict arbitration is the brain's responsibility
+2. **No real-time hard synchronization** — Nanosecond-level synchronization requires an additional time protocol layer
+3. **No value judgments** — Ethics and legality are the organization's responsibility
 
-These boundaries are not defects. They are **design choices** that allow s9y to generalize across scales.
+These boundaries are not defects, but **design choices**. It is precisely because we do not stuff these into the protocol that s9y can be applied to such a wide range of domains. For full functionality, please use the <a href="https://github.com/lazier334/open-s9y-auto" target="_blank">open-s9y-auto</a> project.
 
 ---
 
 ## License
 
-MIT License — see [LICENSE](LICENSE) for details.
+MIT License — See [LICENSE](LICENSE) for details.
