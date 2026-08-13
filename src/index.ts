@@ -1,7 +1,7 @@
 import type { GatewayServerOptions } from "../s9y-server/server.ts";
 import fs from "node:fs";
 import path from "node:path";
-import server from '../s9y-server/index.ts';
+import server from '@open-s9y/server';
 
 const pluginPath = path.join(import.meta.dirname, '../plugins');
 main({ funPivotDir: pluginPath });
