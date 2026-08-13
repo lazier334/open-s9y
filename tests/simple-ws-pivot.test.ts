@@ -1,4 +1,4 @@
-import { WsPivot, Message, MessagePayload } from '../sdk/ws-pivot-sdk.ts'
+import { WsPivot, Message, MessagePayload } from '@open-s9y/sdk'
 
 const __filename = import.meta.filename.replaceAll('\\', '/').split('/').pop() || 'tests';
 const KEY_NAME = process.env.AUDIT_KEY_NAME ?? "s9y-key";

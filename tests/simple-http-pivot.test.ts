@@ -1,4 +1,4 @@
-import { HttpPivot, Message, MessagePayload } from '../sdk/http-pivot-sdk.ts'
+import { HttpPivot, Message, MessagePayload } from '@open-s9y/sdk'
 
 const __filename = import.meta.filename.replaceAll('\\', '/').split('/').pop() || 'tests';
 const KEY_NAME = process.env.AUDIT_KEY_NAME ?? "s9y-key";

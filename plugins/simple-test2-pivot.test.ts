@@ -1,5 +1,6 @@
-import { type FunAdapterType } from "../src/adapters/fun-adapter.ts";
-import { FunPivot, MessagePayload } from "../sdk/fun-pivot-sdk.ts";
+import { type FunAdapterType } from "../s9y-server/adapters/fun-adapter.ts";
+import { MessagePayload } from "@open-s9y/sdk";
+import { FunPivot } from "../s9y-server/lib/fun-pivot-sdk.ts";
 
 export default (funAdapter: FunAdapterType) => {
     const pivot = new FunPivot({
@@ -7,7 +8,7 @@ export default (funAdapter: FunAdapterType) => {
         type: 'user',
         capabilities: ['fun-test2'],
         async onMessage(message) {
-            console.log('t2收到消息', message)
+            console.log(this.name, '收到消息', message)
         }
     });
     setTimeout(() => {
@@ -17,8 +18,8 @@ export default (funAdapter: FunAdapterType) => {
                 sync: true
             }),
             // receiverId: 'test'  
-        }).then(re => console.log('t2发送消息获得响应:', re))
-            .catch(re => console.log('t2出现异常:', re))
+        }).then(re => console.log('fun-test2 发送消息获得响应:', re))
+            .catch(re => console.log('fun-test2 出现异常:', re))
     }, 1000);
     return pivot
 };

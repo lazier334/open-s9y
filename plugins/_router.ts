@@ -1,4 +1,4 @@
-import { type FunAdapterType } from "../src/adapters/fun-adapter.ts";
+import { type FunAdapterType } from "../s9y-server/adapters/fun-adapter.ts";
 
 /**
  * 自定义api等功能  
@@ -8,9 +8,9 @@ import { type FunAdapterType } from "../src/adapters/fun-adapter.ts";
  */
 export default (funAdapter: FunAdapterType) => {
     const fastify = funAdapter.server.fastify;
-        fastify.get("/shutdown", async (_request, reply) => {
-            reply.code(202).send({ status: "正在关机中" });
-            console.log('系统正在关机中...');
-            funAdapter.server?.close().catch(() => process.exit(0));
-        });
+    fastify.get("/shutdown", async (_request, reply) => {
+        reply.code(202).send({ status: "正在关机中" });
+        console.log('系统正在关机中...');
+        funAdapter.server?.close().catch(() => process.exit(0));
+    });
 }

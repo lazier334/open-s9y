@@ -1,4 +1,4 @@
-import { HttpPivot, Message } from '../sdk/http-pivot-sdk.ts'
+import { HttpPivot, Message } from '@open-s9y/sdk'
 
 const KEY_NAME = process.env.AUDIT_KEY_NAME ?? "s9y-key";
 
