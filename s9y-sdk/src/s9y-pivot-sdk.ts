@@ -7,7 +7,6 @@
  */
 import type { PivotOptions, MessageOptions } from './s9y-type.ts';
 import { Pivot, Message, debug } from './s9y-type.ts';
-export * from './s9y-type.ts';
 
 // #region 类型定义
 

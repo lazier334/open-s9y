@@ -1,7 +1,7 @@
 {
-  "name": "@s9y/sdk",
-  "version": "1.0.0",
-  "description": "S9y 支点通信 SDK - 支持 HTTP 和 WebSocket 双协议",
+  "name": "@open-s9y/sdk",
+  "version": "1.3.1",
+  "description": "S9y Pivot 通信 SDK",
   "homepage": "https://github.com/lazier334/open-s9y#readme",
   "bugs": {
     "url": "https://github.com/lazier334/open-s9y/issues"
@@ -26,26 +26,6 @@
       "require": {
         "types": "./dist/index.d.cts",
         "default": "./dist/index.cjs"
-      }
-    },
-    "./http": {
-      "import": {
-        "types": "./dist/http-pivot-sdk.d.ts",
-        "default": "./dist/http-pivot-sdk.js"
-      },
-      "require": {
-        "types": "./dist/http-pivot-sdk.d.cts",
-        "default": "./dist/http-pivot-sdk.cjs"
-      }
-    },
-    "./ws": {
-      "import": {
-        "types": "./dist/ws-pivot-sdk.d.ts",
-        "default": "./dist/ws-pivot-sdk.js"
-      },
-      "require": {
-        "types": "./dist/ws-pivot-sdk.d.cts",
-        "default": "./dist/ws-pivot-sdk.cjs"
       }
     }
   },

@@ -3,7 +3,7 @@
   </img>
 </p>
 
-<h1 align="center" id="title">@s9y/sdk</h1>
+<h1 align="center" id="title">@open-s9y/sdk</h1>
 
 <p align="center">
   <b>递归委托协议</b><br>
@@ -28,7 +28,7 @@ s9ysdk 是用于快速开发 [open-s9y](https://github.com/lazier334/open-s9y) �
 
 ## 快速使用 s9ysdk
 1. 前置条件: 需要启动网关 [详情请查看open-s9y项目](https://github.com/lazier334/open-s9y)
-2. 安装sdk包 `npm i @s9y/sdk`
+2. 安装sdk包 `npm i @open-s9y/sdk`
 3. 开发 [Pivot](#Pivot示例) `touch pivot.ts`
 4. 启动Pivot接入网关 `node pivot.ts`
 
@@ -38,7 +38,7 @@ s9ysdk 是用于快速开发 [open-s9y](https://github.com/lazier334/open-s9y) �
 
 ### http Pivot
 ```js
-import { HttpPivot, Message, MessagePayload } from '@s9y/sdk/http-pivot-sdk.ts'
+import { HttpPivot, Message } from '@open-s9y/sdk'
 
 const pivot = new HttpPivot({
     gatewayUrl: process.env.GATEWAY_URL_HTTP ?? 'http://localhost:3000',
@@ -64,7 +64,7 @@ pivot.sendToServer(new Message({
 
 ### ws Pivot
 ```js
-import { WsPivot, Message, MessagePayload } from '@s9y/sdk/ws-pivot-sdk.ts'
+import { WsPivot, Message } from '@open-s9y/sdk'
 
 const pivot = new WsPivot({
     gatewayUrl: process.env.GATEWAY_URL_WS ?? 'ws://localhost:3000',

@@ -9,7 +9,6 @@
 import WebSocket from "ws";
 import { Message, debug } from "./s9y-type.ts";
 import { S9yPivot, type S9yPivotOptions } from "./s9y-pivot-sdk.ts";
-export * from './s9y-type.ts';
 
 // ─── 类型定义 ───
 

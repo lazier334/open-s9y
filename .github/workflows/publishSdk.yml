@@ -1,0 +1,90 @@
+name: Publish SDK to npm
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号（如 1.0.0 或 1.1.0-beta.1）不写则不修改版本号'
+        default: ''
+        type: string
+  push:
+    tags:
+      - 'sdk-v*'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org/'
+
+      - name: Install SDK dependencies
+        working-directory: s9y-sdk
+        run: npm ci
+
+      - name: Build SDK
+        working-directory: s9y-sdk
+        run: npm run build
+
+      - name: Update version from input
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.version != ''
+        working-directory: s9y-sdk
+        run: |
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+          INPUT_VERSION="${{ github.event.inputs.version }}"
+          if [ "$INPUT_VERSION" != "$CURRENT_VERSION" ]; then
+            npm version "$INPUT_VERSION" --no-git-tag-version
+          else
+            echo "Version unchanged, skipping npm version"
+          fi
+
+      - name: Check version for push tags
+        id: version_check
+        working-directory: s9y-sdk
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          MAJOR=$(echo "$VERSION" | cut -d. -f1)
+          if [ "$MAJOR" -lt 1 ]; then
+            echo "Push tag with version $VERSION (<1.0.0) - skipping publish."
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check if version exists on npm
+        id: check_version
+        if: steps.version_check.outputs.skip != 'true'
+        working-directory: s9y-sdk
+        run: |
+          PACKAGE_NAME=$(node -p "require('./package.json').name")
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "${PACKAGE_NAME}@${VERSION}" version > /dev/null 2>&1; then
+            echo "Version ${VERSION} already exists on npm, will skip publish."
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "Version ${VERSION} is new, will publish."
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Publish to npm
+        if: steps.check_version.outputs.exists != 'true' && steps.version_check.outputs.skip != 'true'
+        working-directory: s9y-sdk
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if [[ $VERSION == *-* ]]; then
+            npm publish --provenance --access public --tag next
+          else
+            npm publish --provenance --access public
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
