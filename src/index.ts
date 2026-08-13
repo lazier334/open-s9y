@@ -15,7 +15,7 @@ async function main(options: GatewayServerOptions) {
         console.error('加载初始化模块失败:', err);
     }
 
-    // 检测文件存活状态(用于避免无法停止)
+    // 2. 检测文件存活状态(用于处理无法停止的情况)
     const runfile = 'start.log';
     fs.writeFileSync(runfile, new Date().toLocaleString());
     setInterval(() => {
@@ -25,6 +25,6 @@ async function main(options: GatewayServerOptions) {
         }
     }, 1000);
 
-    // 启动网关程序
+    // 3. 启动网关程序
     server(options);
 }
