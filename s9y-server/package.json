@@ -1,0 +1,65 @@
+{
+  "name": "@open-s9y/server",
+  "version": "1.0.0",
+  "description": "S9y 服务器",
+  "homepage": "https://github.com/lazier334/open-s9y#readme",
+  "bugs": {
+    "url": "https://github.com/lazier334/open-s9y/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lazier334/open-s9y.git",
+    "directory": "s9y-server"
+  },
+  "license": "MIT",
+  "author": "lazier334",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "keywords": [
+    "s9y",
+    "server",
+    "gateway",
+    "websocket",
+    "http",
+    "fastify",
+    "ai",
+    "agent"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run build"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@open-s9y/sdk": "^1.3.2",
+    "fastify": "^5.3.3",
+    "ws": "^8.21.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "@types/ws": "^8.18.1",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3"
+  }
+}

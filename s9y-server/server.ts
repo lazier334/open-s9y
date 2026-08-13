@@ -1,13 +1,18 @@
 import type { Server } from "node:http";
 import type { Message } from "@open-s9y/sdk";
 import type { FastifyInstance } from "fastify";
+import type { S9yAdapter } from "./adapters/s9y-adapter.ts";
 import type { FunAdapterType } from "./adapters/fun-adapter.ts";
 import path from "node:path";
 import Fastify from "fastify";
 import { WebSocketServer } from "ws";
+import { fileURLToPath } from "node:url";
 import usePlugins from "./lib/scan-fun-pivots.ts";
 import { FunPivot } from "./lib/fun-pivot-sdk.ts";
 import { ConnectionManager } from "./lib/connection.ts";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 /** 网关pivot */
 export const gatewayPivot = new FunPivot({
@@ -57,7 +62,7 @@ export class GatewayServer {
     /** 服务器关闭时执行的回调函数列表 */
     closeHandlers: Array<() => void | Promise<void>> = [];
 
-    constructor(options: GatewayServerOptions = { funPivotDir: path.join(import.meta.dirname, '../plugins') }) {
+    constructor(options: GatewayServerOptions = { funPivotDir: path.join(__dirname, '../plugins') }) {
         this.fastify = Fastify({ logger: false });
         this.wss = new WebSocketServer({ server: this.fastify.server as Server });
         this.requestTimeout = options.requestTimeout ?? 30_000;
@@ -90,6 +95,13 @@ export class GatewayServer {
         usePlugins(funAdapter, this.funPivotDir);
         // 启动服务器
         this.start();
+    }
+
+    /** 加载适配器 */
+    async loadAdapter(AdapterClass: new (...args: any[]) => S9yAdapter): Promise<S9yAdapter> {
+        let adapter = new AdapterClass(this);
+        console.info('已注册 Adapter:', AdapterClass.name);
+        return adapter;
     }
 
     /** 启动服务器 */

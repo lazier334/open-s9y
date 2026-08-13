@@ -3,7 +3,10 @@ import type { FunPivot } from "./fun-pivot-sdk.ts";
 import type { FunAdapterType } from '../adapters/fun-adapter.ts';
 import fs from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { pathToFileURL, fileURLToPath } from "node:url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 type FunPivotWarp = {
     pivot: FunPivot;
@@ -62,7 +65,7 @@ async function importFunPivot(filepath: string, funAdapter: FunAdapterType,): Pr
 /** 热加载插件支点 */
 async function loadFunPivots(
     funAdapter: FunAdapterType,
-    pluginDir: string = path.resolve(import.meta.dirname),
+    pluginDir: string = path.resolve(__dirname),
     hot: boolean = false
 ) {
     // 获取支点文件列表
@@ -71,7 +74,7 @@ async function loadFunPivots(
         return [];
     }
     // 排除当前文件, 并排除非 `pivot.ts`、`pivot.js` 结尾的文件
-    let files = fs.readdirSync(pluginDir).filter(name => ![path.basename(import.meta.filename)]
+    let files = fs.readdirSync(pluginDir).filter(name => ![path.basename(__filename)]
         .includes(name) && filterSuffix(name));
     // 热更新时排除以 `_` 开头的插件
     if (hot) files = files.filter(name => !name.startsWith('_'));
