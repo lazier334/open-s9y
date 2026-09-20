@@ -4,6 +4,10 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  '@open-s9y/sdk': workspace:*
+  '@open-s9y/server': workspace:*
+
 importers:
 
   .:
@@ -50,8 +54,8 @@ importers:
   s9y-server:
     dependencies:
       '@open-s9y/sdk':
-        specifier: ^1.3.2
-        version: 1.3.2
+        specifier: workspace:*
+        version: link:../s9y-sdk
       fastify:
         specifier: ^5.3.3
         version: 5.11.3
@@ -267,10 +271,6 @@ packages:
     cpu: [x64]
     os: [linux]
     libc: [glibc]
-
-  '@open-s9y/sdk@1.3.2':
-    resolution: {integrity: sha512-PRrjeG5YJm34g7M0xbpsVEgH6pejjkWdPBk9gOyW5Cpx36Wg1Bwh2+e+LVc21trApydV9snqXKx9Ul9rYKMtNw==}
-    engines: {node: '>=18.0.0'}
 
   '@pinojs/redact@0.4.0':
     resolution: {integrity: sha512-k2ENnmBugE/rzQfEcdWHcCY+/FM3VLzH9cYEsbdsoqrvzAKRhUZeRNhAZvB8OitQJ1TBed3yqWtdjzS6wJKBwg==}
@@ -911,13 +911,6 @@ snapshots:
 
   '@napi-rs/lzma-linux-x64-gnu@1.5.1':
     optional: true
-
-  '@open-s9y/sdk@1.3.2':
-    dependencies:
-      ws: 8.21.3
-    transitivePeerDependencies:
-      - bufferutil
-      - utf-8-validate
 
   '@pinojs/redact@0.4.0': {}
 

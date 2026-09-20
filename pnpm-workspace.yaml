@@ -2,6 +2,9 @@ packages:
   - 's9y-sdk'
   - 's9y-server'
 allowBuilds:
-  esbuild: set this to true or false
+  esbuild: true
 minimumReleaseAgeExclude:
   - '@open-s9y/sdk@1.3.2'
+overrides:
+  '@open-s9y/sdk': workspace:*
+  '@open-s9y/server': workspace:*
