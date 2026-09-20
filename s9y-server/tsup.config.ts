@@ -1,4 +1,5 @@
 import { defineConfig } from 'tsup';
+import fs from 'node:fs';
 
 export default defineConfig({
   // 入口文件
@@ -21,4 +22,13 @@ export default defineConfig({
     // 保留中文，不转义 Unicode
     options.charset = 'utf8';
   },
+
+  plugins: [{
+    name: 'remove-empty-dirs',
+    buildEnd() {
+      for (const dir of ['dist/lib', 'dist/adapters']) {
+        if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  }],
 });
