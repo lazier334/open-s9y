@@ -1,4 +1,4 @@
-import { type FunAdapterType } from "../s9y-server/adapters/fun-adapter.ts";
+import { type FunAdapterType } from "../../s9y-server/adapters/fun-adapter.ts";
 
 /**
  * 自定义api等功能  

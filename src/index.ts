@@ -2,15 +2,16 @@ import type { GatewayServerOptions } from "../s9y-server/server.ts";
 import fs from "node:fs";
 import path from "node:path";
 import server from '@open-s9y/server';
+import { pathToFileURL } from "node:url";
 
-const pluginPath = path.join(import.meta.dirname, '../plugins');
+const pluginPath = path.join(import.meta.dirname, './plugins');
 main({ funPivotDir: pluginPath });
 
 async function main(options: GatewayServerOptions) {
     // 1. 初始化
     try {
         const initpath = path.join(pluginPath, 'lib/init.ts');
-        if (fs.existsSync(initpath)) await import(initpath);
+        if (fs.existsSync(initpath)) await import(pathToFileURL(initpath).href);
     } catch (err) {
         console.error('加载初始化模块失败:', err);
     }

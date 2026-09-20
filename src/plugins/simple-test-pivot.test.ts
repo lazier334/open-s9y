@@ -1,6 +1,6 @@
-import { type FunAdapterType } from "../s9y-server/adapters/fun-adapter.ts";
+import { type FunAdapterType } from "../../s9y-server/adapters/fun-adapter.ts";
 import { Message } from "@open-s9y/sdk";
-import { FunPivot } from "../s9y-server/lib/fun-pivot-sdk.ts";
+import { FunPivot } from "../../s9y-server/lib/fun-pivot-sdk.ts";
 
 export default (funAdapter: FunAdapterType) => {
     const pivot = new FunPivot({
