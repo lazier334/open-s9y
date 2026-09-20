@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./docs/logo.png" alt="logo" height="200" />
+  <img src="https://lazier334.com/s9y/logo.png" alt="logo" height="200" />
 </p>
 <p align="right">
     <b>English</b> | <a href="README.md">中文</a>
