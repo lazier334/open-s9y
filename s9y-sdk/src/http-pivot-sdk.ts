@@ -13,7 +13,7 @@ import { S9yPivot, type S9yPivotOptions } from './s9y-pivot-sdk.ts';
 
 /** HTTP SDK 配置选项 */
 export interface HttpPivotOptions extends S9yPivotOptions {
-    /** 网关地址，如 http://localhost:3000 或 https://gateway.example.com */
+    /** 网关地址，如 http://localhost:10000 或 https://gateway.example.com */
     gatewayUrl: string;
     /** 请求头 */
     headers?: Record<string, string>;

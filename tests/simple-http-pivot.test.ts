@@ -4,7 +4,7 @@ const __filename = import.meta.filename.replaceAll('\\', '/').split('/').pop() |
 const KEY_NAME = process.env.AUDIT_KEY_NAME ?? "s9y-key";
 
 const pivot = new HttpPivot({
-    gatewayUrl: process.env.GATEWAY_URL_HTTP ?? 'http://localhost:3000',
+    gatewayUrl: process.env.GATEWAY_URL_HTTP ?? 'http://localhost:10000',
     headers: {
         cookie: `${KEY_NAME}=user`
     },

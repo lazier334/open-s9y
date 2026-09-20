@@ -11,7 +11,7 @@ export async function server(options: GatewayServerOptions) {
     try {
         // 加载适配器
         const gateway = new GatewayServer({
-            port: process.env.GATEWAY_PORT ? Number(process.env.GATEWAY_PORT) : 3000,
+            port: process.env.GATEWAY_PORT ? Number(process.env.GATEWAY_PORT) : 10000,
             heartbeatInterval: 30_000,
             pivotTimeout: 60_000,
             pluginPivotId: process.env.PLUGIN_PIVOT_ID ?? "router",

@@ -1,5 +1,5 @@
 {
-  "GATEWAY_PORT": 3000,
+  "GATEWAY_PORT": 10000,
   "API_SHUTDOWN": true,
   "API_ADMIN": true,
   "API_CONFIG": true,

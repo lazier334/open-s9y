@@ -67,7 +67,7 @@ export class GatewayServer {
         this.wss = new WebSocketServer({ server: this.fastify.server as Server });
         this.requestTimeout = options.requestTimeout ?? 30_000;
         this.pluginPivotId = options.pluginPivotId;
-        this.port = options.port ?? 3000;
+        this.port = options.port ?? 10000;
         this.funPivotDir = options.funPivotDir;
 
         // 注册 octet-stream 解析器，用于接收二进制流数据

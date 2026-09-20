@@ -41,7 +41,7 @@ outline: deep
 
 | 配置项                   | 类型      | 默认值                                 | 说明                                           |
 | ------------------------ | --------- | -------------------------------------- | ---------------------------------------------- |
-| `GATEWAY_PORT`           | `number`  | `3000`                                 | 网关 HTTP 服务监听端口                         |
+| `GATEWAY_PORT`           | `number`  | `10000`                                | 网关 HTTP 服务监听端口                         |
 | `GATEWAY_LOG_PATH`       | `string`  | `logs/<时间戳>.log`                    | 日志文件路径。CLI 参数 `LOG_PATH` 优先级更高   |
 | `GATEWAY_CMD`            | `string`  | `npm run gateway`                      | 重启时执行的命令（`API_SHUTDOWN=true` 时有效） |
 | `API_SHUTDOWN`           | `boolean` | `false`                                | 是否暴露 `/shutdown` 和 `/restart` 端点        |
@@ -310,7 +310,7 @@ class MyPivot extends BasePivot {
 }
 
 const pivot = new MyPivot({
-  gatewayUrl: "localhost:3000",
+  gatewayUrl: "localhost:10000",
   pivotId: "my-worker-01",
   type: "agent",
   capabilities: ["text-processing"],

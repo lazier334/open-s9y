@@ -40,7 +40,7 @@ s9ysdk 是用于快速开发 [open-s9y](https://github.com/lazier334/open-s9y) �
 import { HttpPivot, Message } from '@open-s9y/sdk'
 
 const pivot = new HttpPivot({
-    gatewayUrl: process.env.GATEWAY_URL_HTTP ?? 'http://localhost:3000',
+    gatewayUrl: process.env.GATEWAY_URL_HTTP ?? 'http://localhost:10000',
     headers: {
         // 用于身份验证
         cookie: `${process.env.AUDIT_KEY_NAME ?? "s9y-key"}=user`
@@ -66,7 +66,7 @@ pivot.sendToServer(new Message({
 import { WsPivot, Message } from '@open-s9y/sdk'
 
 const pivot = new WsPivot({
-    gatewayUrl: process.env.GATEWAY_URL_WS ?? 'ws://localhost:3000',
+    gatewayUrl: process.env.GATEWAY_URL_WS ?? 'ws://localhost:10000',
     headers: {
         // 用于身份验证
         cookie: `${process.env.AUDIT_KEY_NAME ?? "s9y-key"}=user`
