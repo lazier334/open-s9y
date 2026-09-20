@@ -4,8 +4,7 @@
  */
 import type { FastifyRequest } from "fastify";
 import type { IncomingMessage } from "node:http";
-import type { Connection } from "../../s9y-server/lib/connection.ts";
-import { FunPivot } from "../../s9y-server/lib/fun-pivot-sdk.ts";
+import { Connection, FunPivot } from "@open-s9y/server";
 import { Message, MessagePayload } from "@open-s9y/sdk";
 
 const pluginPivotId = process.env.AUDIT_PIVOT_ID ?? "audit";

@@ -43,7 +43,7 @@
     "agent"
   ],
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && rm -rf dist/lib dist/adapters",
     "dev": "tsup --watch",
     "clean": "rm -rf dist",
     "prepublishOnly": "npm run build"

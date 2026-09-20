@@ -1,7 +1,10 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { GatewayServer, type GatewayServerOptions } from "./server.ts";
-export * from './adapters/s9y-adapter.ts';
+
+export * as adapters from "./adapters/index.ts";
+export * from "./lib/index.ts";
+export * from "./server.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

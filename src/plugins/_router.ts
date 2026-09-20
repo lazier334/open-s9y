@@ -1,4 +1,4 @@
-import { type FunAdapterType } from "../../s9y-server/adapters/fun-adapter.ts";
+import { adapters } from "@open-s9y/server";
 
 /**
  * 自定义api等功能  
@@ -6,7 +6,7 @@ import { type FunAdapterType } from "../../s9y-server/adapters/fun-adapter.ts";
  * 可以通过 funAdapter 拿到其他对象  
  * 使用 _ 开始命名的文件只会在初次加载，dev 模式后续热更新不会重新加载 _ 开头的模块
  */
-export default (funAdapter: FunAdapterType) => {
+export default (funAdapter: adapters.FunAdapterType) => {
     const fastify = funAdapter.server.fastify;
     fastify.get("/shutdown", async (_request, reply) => {
         reply.code(202).send({ status: "正在关机中" });

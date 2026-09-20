@@ -1,7 +1,6 @@
 import type { Message } from "@open-s9y/sdk";
 import type { GatewayServer } from "../server.ts";
-import type { Connection } from "../lib/connection.ts";
-import type { FunPivot } from "../lib/fun-pivot-sdk.ts";
+import type { Connection, FunPivot } from "../lib/index.ts";
 import { S9yAdapter } from "./s9y-adapter.ts";
 
 /**

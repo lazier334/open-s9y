@@ -1,6 +1,6 @@
 import type { Pivot } from "@open-s9y/sdk";
 import type { FunPivot } from "./fun-pivot-sdk.ts";
-import type { FunAdapter } from "../adapters/fun-adapter.ts"
+import type { FunAdapter } from "../adapters/index.ts"
 import { Message, MessagePayload, debug } from "@open-s9y/sdk";
 
 /** 适配器类型 */

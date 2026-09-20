@@ -2,7 +2,7 @@ import type { FastifyRequest } from "fastify";
 import type { IncomingMessage } from "node:http";
 import type { GatewayServer } from "../server.ts";
 import type { MessageOptions, PivotOptions } from "@open-s9y/sdk";
-import type { Connection, AdapterType, ConnectionManager } from "../lib/connection.ts";
+import type { Connection, AdapterType, ConnectionManager } from "../lib/index.ts";
 import { Message, MessagePayload, Pivot } from "@open-s9y/sdk";
 
 /** 适配器错误 */

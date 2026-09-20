@@ -1,15 +1,12 @@
 import type { Server } from "node:http";
 import type { Message } from "@open-s9y/sdk";
 import type { FastifyInstance } from "fastify";
-import type { S9yAdapter } from "./adapters/s9y-adapter.ts";
-import type { FunAdapterType } from "./adapters/fun-adapter.ts";
+import type { S9yAdapter, FunAdapterType } from "./adapters/index.ts";
 import path from "node:path";
 import Fastify from "fastify";
 import { WebSocketServer } from "ws";
 import { fileURLToPath } from "node:url";
-import usePlugins from "./lib/scan-fun-pivots.ts";
-import { FunPivot } from "./lib/fun-pivot-sdk.ts";
-import { ConnectionManager } from "./lib/connection.ts";
+import { FunPivot, ConnectionManager, scanAndRegisterPlugins } from "./lib/index.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -92,7 +89,7 @@ export class GatewayServer {
         // 给 Pivot 添加 Adapter 并注册
         this.connections.setFunAdapter(funAdapter)
         // 初始化系统其他插件
-        usePlugins(funAdapter, this.funPivotDir);
+        scanAndRegisterPlugins(funAdapter, this.funPivotDir);
         // 启动服务器
         this.start();
     }

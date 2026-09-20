@@ -1,4 +1,4 @@
-import { FunPivot } from "../../s9y-server/lib/fun-pivot-sdk.ts";
+import { FunPivot } from "@open-s9y/server";
 
 export const pivot = new FunPivot({
     pivotId: 'fun',

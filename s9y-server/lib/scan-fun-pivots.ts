@@ -21,7 +21,7 @@ const filterSuffix = !devMode ? (name: string) => { return name.endsWith("pivot.
     : (name: string) => { return name.endsWith("pivot.ts") || name.endsWith("pivot.test.ts") || name.endsWith("pivot.js") || name.endsWith("pivot.test.js") };
 
 /** 扫描并注册支点 */
-export default async function scanAndRegister(funAdapter: FunAdapterType, funPivotDir: string): Promise<void> {
+export async function scanAndRegisterPlugins(funAdapter: FunAdapterType, funPivotDir: string): Promise<void> {
     const pivotList = Object.values(await loadFunPivots(funAdapter, funPivotDir));
     console.info(`已注册${pivotList.length}个本地支点`);
     if (devMode) {

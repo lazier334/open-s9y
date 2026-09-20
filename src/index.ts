@@ -1,4 +1,4 @@
-import type { GatewayServerOptions } from "../s9y-server/server.ts";
+import type { GatewayServerOptions } from "@open-s9y/server";
 import fs from "node:fs";
 import path from "node:path";
 import server from '@open-s9y/server';

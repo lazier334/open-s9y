@@ -7,7 +7,7 @@
  * - 无需网络连接的本地开发
  */
 import type { S9yPivotOptions, Message } from '@open-s9y/sdk';
-import type { FunAdapterType } from '../adapters/fun-adapter.ts';
+import type { FunAdapterType } from '../adapters/index.ts';
 import type { Connection } from "./connection.ts";
 import { S9yPivot, debug, PivotError } from '@open-s9y/sdk';
 
