@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>s9y - Singularity</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #ffffff;
+            color: #1a1a1a;
+            font-family: -apple-system, "SF Pro Display", "Helvetica Neue", sans-serif;
+            transition: background 0.3s, color 0.3s;
+        }
+
+        body.dark {
+            background: #0a0a0a;
+            color: #e0e0e0;
+        }
+
+        .container {
+            text-align: center;
+            padding: 2rem;
+        }
+
+        .logo {
+            width: 200px;
+            height: 100px;
+            margin: 0 auto 2rem;
+            border-radius: 24px;
+            background: linear-gradient(135deg, #f0f0f5, #e8ecf1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 10px;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+            overflow: hidden;
+            transition: background 0.3s, box-shadow 0.3s;
+        }
+
+        body.dark .logo {
+            background: linear-gradient(135deg, #1a1a2e, #16213e);
+            box-shadow: 0 0 40px rgba(100, 100, 255, 0.15);
+        }
+
+        .logo>img {
+            width: 250px;
+            height: 290px;
+            object-fit: contain;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            font-weight: 600;
+            letter-spacing: -0.02em;
+            margin-bottom: 0.5rem;
+        }
+
+        .subtitle {
+            color: #666;
+            font-size: 1.1rem;
+            margin-bottom: 2.5rem;
+        }
+
+        body.dark .subtitle {
+            color: #888;
+        }
+
+        .status {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1.2rem;
+            border-radius: 999px;
+            background: rgba(46, 160, 67, 0.1);
+            color: #1a7f37;
+            font-size: 0.9rem;
+            transition: background 0.3s, color 0.3s;
+        }
+
+        body.dark .status {
+            background: rgba(46, 160, 67, 0.15);
+            color: #3fb950;
+        }
+
+        .status::before {
+            content: "";
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #1a7f37;
+        }
+
+        .status.stopped {
+            background: rgba(248, 81, 73, 0.1);
+            color: #cf222e;
+        }
+
+        body.dark .status.stopped {
+            background: rgba(248, 81, 73, 0.15);
+            color: #f85149;
+        }
+
+        .status.stopped::before {
+            background: #cf222e;
+        }
+
+        body.dark .status.stopped::before {
+            background: #f85149;
+        }
+
+        body.dark .status::before {
+            background: #3fb950;
+        }
+
+        .links {
+            margin-top: 2rem;
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+        }
+
+        .links a {
+            color: #444;
+            text-decoration: none;
+            font-size: 0.85rem;
+            transition: color 0.2s;
+        }
+
+        .links a:hover {
+            color: #111;
+        }
+
+        body.dark .links a {
+            color: #888;
+        }
+
+        body.dark .links a:hover {
+            color: #e0e0e0;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- 隐藏的 canvas，用于生成图片 -->
+    <canvas id="hiddenCanvas" width="500" height="580" style="display: none;"></canvas>
+
+    <div class="container">
+        <div class="logo">
+            <img id="logoImg" alt="S9Y">
+        </div>
+        <h1>s9y</h1>
+        <div class="status" id="serverStatus">检测中...</div>
+        <div class="links">
+            <a href="https://github.com/lazier334/open-s9y" target="_blank">GitHub</a>
+            <a href="https://github.com/lazier334/open-s9y#readme" target="_blank">文档</a>
+            <a href="?d=true" id="switchTheme">亮色</a>
+        </div>
+    </div>
+
+    <script>
+        // ----- 暗色模式支持 -----
+        const lu = new URL(location.href);
+        const sp = lu.searchParams;
+        const isDark = sp.get('d') === 'true';
+        if (isDark) {
+            document.body.classList.add('dark');
+            const a = document.querySelector('#switchTheme');
+            a.innerHTML = '暗色';
+            a.setAttribute('href', '?d=false');
+        }
+
+        // ----- Canvas Logo 配置 -----
+        const config = {
+            W: 500,
+            H: 580,
+            R: 80,
+            r: 10,
+            LINE_WIDTH: 4,
+            init() {
+                this.GAP = -this.r;
+                this.D = this.R + this.r + this.GAP;
+                this.cy_mid = this.cy_top + this.cy_step;
+                this.cy_bot = this.cy_mid + this.cy_step * this.cy_bot_ratio;
+            },
+            GAP: -4,
+            D: 80,
+            cx: 250,
+            cy_step: 160,
+            cy_top: 130,
+            cy_bot_ratio: 0.666,
+            cy_mid: 290,
+            cy_bot: 0.666,
+            dash: false,
+            darkness: isDark,
+            fill: true,
+            REG_COLOR: '#f0883e',
+            PUSH_COLOR: '#58a6ff',
+            RING_COLOR: '#1a1a2e',
+            DEF_FILL_COLOR: '#fff',
+            DOT_STROKE_COLOR: '#000',
+            CORE_COLOR: '#000',
+            rotateDeg: -25,
+        };
+        config.init();
+
+        if (config.darkness) {
+            config.DEF_FILL_COLOR = '#000';
+            config.CORE_COLOR = '#fff';
+            config.RING_COLOR = '#e5e5d1';
+            config.DOT_STROKE_COLOR = '#fff';
+        }
+
+        // ----- 绘制函数 -----
+        function deg(d) {
+            return d * Math.PI / 180;
+        }
+
+        function drawBigEdgeArc(ctx, cx, cy, startDeg, endDeg, clockwise, color) {
+            ctx.beginPath();
+            ctx.arc(cx, cy, config.R * 2, deg(startDeg), deg(endDeg), !clockwise);
+            ctx.strokeStyle = color || config.RING_COLOR;
+            ctx.lineWidth = config.LINE_WIDTH;
+            ctx.lineCap = 'round';
+            ctx.stroke();
+        }
+
+        function drawBigArc(ctx, cx, cy, startDeg, endDeg, clockwise, color) {
+            ctx.beginPath();
+            ctx.arc(cx, cy, config.R, deg(startDeg), deg(endDeg), !clockwise);
+            ctx.strokeStyle = color || config.DOT_STROKE_COLOR;
+            ctx.lineWidth = config.LINE_WIDTH;
+            ctx.lineCap = 'round';
+            ctx.stroke();
+        }
+
+        function drawDot(ctx, cx, cy, color) {
+            ctx.save();
+            ctx.globalCompositeOperation = 'destination-out';
+            ctx.beginPath();
+            ctx.arc(cx, cy, config.r, 0, deg(360));
+            ctx.fill();
+            ctx.restore();
+
+            ctx.beginPath();
+            ctx.arc(cx, cy, config.r, 0, deg(360));
+            if (config.fill) {
+                ctx.fillStyle = config.DEF_FILL_COLOR;
+                ctx.fill();
+            }
+            ctx.strokeStyle = color || config.DOT_STROKE_COLOR;
+            ctx.lineWidth = 2.5;
+            ctx.stroke();
+        }
+
+        function drawDot2(ctx, cx, cy, color) {
+            ctx.beginPath();
+            ctx.arc(cx, cy, config.r / 4, 0, deg(360));
+            if (config.fill) {
+                ctx.fillStyle = config.DEF_FILL_COLOR;
+                ctx.fill();
+            }
+            ctx.strokeStyle = color || config.DOT_STROKE_COLOR;
+            ctx.lineWidth = 0.5;
+            ctx.stroke();
+        }
+
+        function drawCore(ctx, cx, cy) {
+            const degNum = 25;
+            const R = config.R;
+
+            ctx.beginPath();
+            ctx.arc(cx, cy, R * 0.6, deg(195 + degNum), deg(345 + degNum), false);
+            ctx.strokeStyle = config.REG_COLOR;
+            ctx.lineWidth = 6;
+            ctx.lineCap = 'round';
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.arc(cx, cy, R * 0.6, deg(15 + degNum), deg(165 + degNum), false);
+            ctx.strokeStyle = config.PUSH_COLOR;
+            ctx.lineWidth = 6;
+            ctx.lineCap = 'round';
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.arc(cx, cy, 20, 0, Math.PI * 2);
+            ctx.fillStyle = config.CORE_COLOR;
+            ctx.fill();
+        }
+
+        function generateLogo() {
+            const canvas = document.getElementById('hiddenCanvas');
+            const ctx = canvas.getContext('2d');
+            const A0 = 0, A90 = 90, A180 = 180, A270 = 270, A360 = 360;
+
+            // 清空并绘制
+            ctx.clearRect(0, 0, config.W, config.H);
+            if (config.fill) {
+                ctx.fillStyle = config.DEF_FILL_COLOR;
+                ctx.fillRect(0, 0, config.W, config.H);
+            }
+
+            const cx = config.cx;
+            const cyM = config.cy_mid;
+            const D = config.D;
+
+            ctx.save();
+            ctx.translate(cx, cyM);
+            ctx.rotate(deg(config.rotateDeg));
+            ctx.translate(-cx, -cyM);
+
+            drawCore(ctx, cx, cyM);
+
+            drawBigEdgeArc(ctx, cx, config.cy_top + config.cy_step * 1.5, A270, A360, true, config.REG_COLOR);
+            drawBigEdgeArc(ctx, cx, config.cy_top + config.cy_step * 0.5, A90, A180, true, config.PUSH_COLOR);
+
+            drawDot(ctx, cx - D * 0.45, config.cy_top + config.cy_step * 0.8, config.REG_COLOR);
+            drawDot(ctx, cx + D * 0.45, config.cy_top + config.cy_step * 1.2, config.PUSH_COLOR);
+            drawDot2(ctx, cx, cyM, '#000');
+
+            drawBigArc(ctx, cx, cyM, A0, A360, true);
+
+            ctx.restore();
+
+            // 提取图片并设置到 img 元素
+            const img = document.getElementById('logoImg');
+            img.src = canvas.toDataURL('image/png');
+        }
+
+        window.onload = generateLogo;
+
+        // ----- 服务器状态检测 -----
+        (function checkServer() {
+            const el = document.getElementById('serverStatus');
+            function ping() {
+                fetch(location.href, { method: 'HEAD', cache: 'no-store' })
+                    .then(r => {
+                        if (r.ok) {
+                            el.textContent = '运行中';
+                            el.classList.remove('stopped');
+                        } else {
+                            el.textContent = '已停止';
+                            el.classList.add('stopped');
+                        }
+                    })
+                    .catch(() => {
+                        el.textContent = '已停止';
+                        el.classList.add('stopped');
+                    });
+            }
+            ping();
+            setInterval(ping, 10 * 1000);
+        })();
+    </script>
+</body>
+
+</html>

@@ -17,25 +17,16 @@ export class HttpAdapter extends S9yAdapter {
         super(server);
         const { fastify } = server;
 
-        // 身份验证，默认全部请求都需要验证
-        const authenticateRequestOrigin = async (request: FastifyRequest, reply: FastifyReply) => {
+        // 权限检测
+        fastify.addHook('preHandler', async (request: FastifyRequest, reply: FastifyReply) => {
+            const path = (request.url ?? "").split('?').shift() ?? "";
+            // 首页页面跳过认证
+            if (path === '/') return reply.redirect('/index.html');
+            if (path === "/index.html") return;
             if (!await this.authenticateRequest(request)) {
                 return reply.code(401).send({ error: '身份验证失败' });
             }
-        };
-        let authenticateRequest = authenticateRequestOrigin;
-        // 开启管理接口，此时 /index.html 无需验证，可以从这里返回秘钥
-        if (process.env.API_ADMIN == 'true') {
-            authenticateRequest = async (request: FastifyRequest, reply: FastifyReply) => {
-                const path = (request.url ?? "").split('?').shift() ?? "";
-                // 首页页面跳过认证
-                if (path === '/') return reply.redirect('/index.html');
-                if (path === "/index.html") return;
-                // 进行验证
-                return await authenticateRequestOrigin(request, reply);
-            }
-        }
-        fastify.addHook('preHandler', authenticateRequest);
+        });
 
         // ── GET /s9y ── 支点注册（Http长轮询）
         fastify.get("/s9y", async (request, reply) => {
