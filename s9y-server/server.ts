@@ -1,9 +1,11 @@
-import type { Server } from "node:http";
+import type { Server } from "node:https";
 import type { Message } from "@open-s9y/sdk";
 import type { FastifyInstance } from "fastify";
 import type { S9yAdapter, FunAdapterType } from "./adapters/index.ts";
+import fs from "node:fs";
 import path from "node:path";
 import Fastify from "fastify";
+import forge from 'node-forge';
 import { WebSocketServer } from "ws";
 import { fileURLToPath } from "node:url";
 import { FunPivot, ConnectionManager, scanAndRegisterPlugins } from "./lib/index.ts";
@@ -60,7 +62,87 @@ export class GatewayServer {
     closeHandlers: Array<() => void | Promise<void>> = [];
 
     constructor(options: GatewayServerOptions = { funPivotDir: path.join(__dirname, '../plugins') }) {
-        this.fastify = Fastify({ logger: false });
+
+        /**
+         * 使用 node-forge 生成自签名证书
+         */
+        function generateSelfSignedCertificate(): { key: string; cert: string } {
+            // 1. 生成 RSA 密钥对（2048 位）
+            const keys = forge.pki.rsa.generateKeyPair(2048);
+
+            // 2. 创建证书对象
+            const now = new Date();
+            const cert = forge.pki.createCertificate();
+            cert.publicKey = keys.publicKey;
+            cert.serialNumber = '01' + now.getTime().toString(16);                      // 简单唯一序列号
+            cert.validity.notBefore = new Date(now.getTime() - 24 * 60 * 60 * 1000);    // 1 天前生效
+            cert.validity.notAfter = now;
+            cert.validity.notAfter.setFullYear(now.getFullYear() + 10);                 // 有效期 10 年
+
+            // 3. 设置证书主体和颁发者信息（自签名，两者相同）
+            const attrs = [
+                { name: 'commonName', value: 'localhost' },
+                { name: 'organizationName', value: 'Development' },
+                { name: 'countryName', value: 'CN' },
+            ];
+            cert.setSubject(attrs);
+            cert.setIssuer(attrs);
+
+            // 4. 设置扩展属性（关键：subjectAltName 让浏览器接受 localhost）
+            cert.setExtensions([
+                {
+                    name: 'subjectAltName',
+                    altNames: [
+                        { type: 2, value: 'localhost' },   // DNS
+                        { type: 7, ip: '127.0.0.1' },      // IPv4
+                        { type: 7, ip: '::1' },            // IPv6
+                    ],
+                },
+                {
+                    name: 'basicConstraints',
+                    cA: false, // 不是 CA 证书
+                },
+                {
+                    name: 'keyUsage',
+                    digitalSignature: true,
+                    keyEncipherment: true,
+                },
+                {
+                    name: 'extKeyUsage',
+                    serverAuth: true,
+                },
+            ]);
+            // 5. 自签名（用私钥签名）
+            cert.sign(keys.privateKey, forge.md.sha256.create());
+            // 6. 转换为 PEM 格式
+            const key = forge.pki.privateKeyToPem(keys.privateKey);
+            const certPem = forge.pki.certificateToPem(cert);
+            return { key, cert: certPem };
+        }
+
+        this.fastify = Fastify({
+            logger: false,
+            https: process.env.TLS_KEY && process.env.TLS_CERT ? {
+                key: process.env.TLS_KEY,
+                cert: process.env.TLS_CERT
+            } : (() => {
+                const keyFile = path.join(process.cwd(), 'server.key');
+                const crtFile = path.join(process.cwd(), 'server.crt');
+                if (!fs.existsSync(keyFile) || !fs.existsSync(crtFile)) {
+                    // 生成证书
+                    const { key, cert } = generateSelfSignedCertificate();
+                    // 私钥权限 600
+                    fs.writeFileSync(keyFile, key, { mode: 0o600 });
+                    fs.writeFileSync(crtFile, cert, 'utf8');
+                    console.info('已生成证书文件！位于', [keyFile, crtFile])
+                }
+
+                return {
+                    key: fs.readFileSync(keyFile, 'utf8'),
+                    cert: fs.readFileSync(crtFile, 'utf8')
+                }
+            })()
+        });
         this.wss = new WebSocketServer({ server: this.fastify.server as Server });
         this.requestTimeout = options.requestTimeout ?? 30_000;
         this.pluginPivotId = options.pluginPivotId;
