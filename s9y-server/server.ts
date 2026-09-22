@@ -1,5 +1,4 @@
 import type { Server } from "node:https";
-import type { Message } from "@open-s9y/sdk";
 import type { FastifyInstance } from "fastify";
 import type { S9yAdapter, FunAdapterType } from "./adapters/index.ts";
 import fs from "node:fs";
@@ -7,19 +6,12 @@ import path from "node:path";
 import Fastify from "fastify";
 import forge from 'node-forge';
 import { WebSocketServer } from "ws";
+import { Message } from "@open-s9y/sdk";
 import { fileURLToPath } from "node:url";
 import { FunPivot, ConnectionManager, scanAndRegisterPlugins } from "./lib/index.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-/** 网关pivot */
-export const gatewayPivot = new FunPivot({
-    pivotId: 'gateway',
-    type: 'system',
-    capabilities: ['gateway'],
-    async onMessage(message: Message) { },
-});
 
 export interface GatewayServerOptions {
     port?: number;
@@ -53,6 +45,7 @@ export class GatewayServer {
     connections: ConnectionManager;
     pluginPivotId?: string;
     funPivotDir: string;
+    private gatewayPivot: FunPivot;
 
     /** 已完成的 taskId 集合，用于去重 */
     readonly completedTasks = new Set<string>();
@@ -155,15 +148,21 @@ export class GatewayServer {
             (_request, payload, done) => done(null, payload)
         );
 
+        /** 网关pivot */
+        this.gatewayPivot = new FunPivot({
+            pivotId: 'gateway',
+            type: 'system',
+            capabilities: ['gateway'],
+            onMessage: async (...args) => await this.onMessage(...args)
+        });
+
         this.connections = new ConnectionManager({
-            gatewayPivot,
+            gatewayPivot: this.gatewayPivot,
             heartbeatInterval: options.heartbeatInterval,
             pivotTimeout: options.pivotTimeout,
             pivotCacheTTL: options.pivotCacheTTL,
             pluginPivotId: options.pluginPivotId,
         });
-        // 重写消息处理函数
-        this.connections.handleBizMessageHook = (...args) => this.handleBizMessageHook(...args);
     }
 
     // 初始化适配器（由适配器调用）
@@ -245,30 +244,20 @@ export class GatewayServer {
     }
 
     // #endregion 网关类
-    // #region 重写 handleBizMessageHook
-
-    // ─── 业务消息处理 ───
+    // #region server业务
 
     /**
-     * 统一处理业务消息
-     * - pivots 类型：查询支点列表
-     * - 其他类型：路由到目标支点处理
-     * @returns pivots 查询返回支点列表，其他返回路由结果
+     * 网关收到消息
      */
-    async handleBizMessageHook(message: Message): Promise<unknown> {
-        // 查询全部支点的请求
-        if (message.payload.type === "pivots") {
-            // 将消息修改为服务器发送给支点
-            message = {
-                ...message,
-                receiverId: message.senderId,
-                senderId: gatewayPivot.pivotId,
-                body: await this._handlePivotsQuery(message)
-            };
+    async onMessage(message: Message): Promise<void | Message> {
+        switch (message.body?.cmd) {
+            // 处理 pivots 消息
+            case 'pivots':
+                return new Message({
+                    body: await this._handlePivotsQuery(message)
+                });
         }
-
-        // 调用 connection 的处理
-        return this.connections.handleBizMessage(message);
+        // 其他消息静默忽略
     }
 
     /** 查询支点列表 */
@@ -291,5 +280,5 @@ export class GatewayServer {
         return { pivots };
     }
 
-    // #endregion 重写 handleBizMessageHook
+    // #endregion server业务
 }
