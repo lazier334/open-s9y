@@ -258,7 +258,13 @@ export class GatewayServer {
     async handleBizMessageHook(message: Message): Promise<unknown> {
         // 查询全部支点的请求
         if (message.payload.type === "pivots") {
-            return this._handlePivotsQuery(message);
+            // 将消息修改为服务器发送给支点
+            message = {
+                ...message,
+                receiverId: message.senderId,
+                senderId: gatewayPivot.pivotId,
+                body: await this._handlePivotsQuery(message)
+            };
         }
 
         // 调用 connection 的处理
