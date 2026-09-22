@@ -14,7 +14,7 @@ import { S9yPivot, type S9yPivotOptions } from "./s9y-pivot-sdk.ts";
 
 /** WebSocket SDK 配置选项 */
 export interface WsPivotOptions extends S9yPivotOptions {
-    /** 网关地址，如 ws://localhost:10000 或 wss://gateway.example.com */
+    /** 网关地址，如 wss://localhost:10000 或 wss://gateway.example.com */
     gatewayUrl: string;
     /** 请求头 */
     headers?: Record<string, string>;
