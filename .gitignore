@@ -149,3 +149,4 @@ test
 .vscode
 server.key
 server.crt
+temp.*

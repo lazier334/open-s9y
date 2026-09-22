@@ -28,11 +28,10 @@ export function createTraceId(length: number = 10, characters: string = '0123456
 /**
  * 消息类型
  * - push: 任务推送（网关 → 支点，或支点 → 网关）
- * - pipe: 管道协议（进度/结果/状态查询）
  * - register: 支点注册
  * - heartbeat: 心跳保活
- * - pivots: 查询支点列表 */
-export type MessageType = "push" | "pipe" | "register" | "heartbeat" | "pivots" | string;
+ */
+export type MessageType = "push" | "register" | "heartbeat" | string;
 
 /** 
  * 消息载荷，用于做配置
