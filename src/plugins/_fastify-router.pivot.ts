@@ -1,6 +1,6 @@
 import { join } from "path";
 import fastifyStatic from "@fastify/static";
-import { adapters } from "@open-s9y/server";
+import { adapters } from "@open-s9y/gateway";
 
 /**
  * 自定义api等功能  

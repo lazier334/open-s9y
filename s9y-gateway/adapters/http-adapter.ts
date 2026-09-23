@@ -1,4 +1,4 @@
-import type { GatewayServer } from "../server.ts";
+import type { GatewayServer } from "../gateway.ts";
 import type { ConnectionOptions } from "./s9y-adapter.ts";
 import type { FastifyRequest, FastifyReply } from "fastify";
 import { MessagePayload, Message } from "@open-s9y/sdk";

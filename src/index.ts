@@ -1,7 +1,7 @@
-import type { GatewayServerOptions } from "@open-s9y/server";
+import type { GatewayServerOptions } from "@open-s9y/gateway";
 import fs from "node:fs";
 import path from "node:path";
-import server from '@open-s9y/server';
+import server from '@open-s9y/gateway';
 import { pathToFileURL } from "node:url";
 
 const pluginPath = path.join(import.meta.dirname, './plugins');

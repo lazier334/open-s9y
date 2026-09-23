@@ -1,4 +1,4 @@
-import { FunPivot } from "@open-s9y/server";
+import { FunPivot } from "@open-s9y/gateway";
 
 export const pivot = new FunPivot({
     pivotId: 'fun',

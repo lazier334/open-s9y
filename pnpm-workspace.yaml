@@ -1,10 +1,10 @@
 packages:
   - 's9y-sdk'
-  - 's9y-server'
+  - 's9y-gateway'
 allowBuilds:
   esbuild: true
 minimumReleaseAgeExclude:
   - '@open-s9y/sdk@1.3.2'
 overrides:
   '@open-s9y/sdk': workspace:*
-  '@open-s9y/server': workspace:*
+  '@open-s9y/gateway': workspace:*

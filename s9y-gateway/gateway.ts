@@ -119,8 +119,8 @@ export class GatewayServer {
                 key: process.env.TLS_KEY,
                 cert: process.env.TLS_CERT
             } : (() => {
-                const keyFile = path.join(process.cwd(), 'server.key');
-                const crtFile = path.join(process.cwd(), 'server.crt');
+                const keyFile = path.join(process.cwd(), 'gateway.key');
+                const crtFile = path.join(process.cwd(), 'gateway.crt');
                 if (!fs.existsSync(keyFile) || !fs.existsSync(crtFile)) {
                     // 生成证书
                     const { key, cert } = generateSelfSignedCertificate();
@@ -244,10 +244,10 @@ export class GatewayServer {
     }
 
     // #endregion 网关类
-    // #region server业务
+    // #region gateway业务
 
     /**
-     * 网关收到消息
+     * 网关处理收到的消息
      */
     async onMessage(message: Message): Promise<void | Message> {
         switch (message.body?.cmd) {
@@ -280,5 +280,5 @@ export class GatewayServer {
         return { pivots };
     }
 
-    // #endregion server业务
+    // #endregion gateway业务
 }

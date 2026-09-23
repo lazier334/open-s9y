@@ -1,6 +1,6 @@
 import type { WebSocket } from "ws";
 import type { IncomingMessage } from "node:http";
-import type { GatewayServer } from "../server.ts";
+import type { GatewayServer } from "../gateway.ts";
 import type { ConnectionOptions, AdapterError } from "./s9y-adapter.ts";
 import { Message } from "@open-s9y/sdk";
 import { S9yAdapter } from "./s9y-adapter.ts";

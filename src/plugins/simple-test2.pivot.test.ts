@@ -1,5 +1,5 @@
 import { MessagePayload } from "@open-s9y/sdk";
-import { adapters, FunPivot } from "@open-s9y/server";
+import { adapters, FunPivot } from "@open-s9y/gateway";
 
 export default (funAdapter: adapters.FunAdapterType) => {
     const pivot = new FunPivot({

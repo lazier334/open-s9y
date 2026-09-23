@@ -1,7 +1,7 @@
 {
-  "name": "@open-s9y/server",
-  "version": "1.0.0",
-  "description": "S9y 服务器",
+  "name": "@open-s9y/gateway",
+  "version": "0.0.0",
+  "description": "S9y 网关服务器",
   "homepage": "https://github.com/lazier334/open-s9y#readme",
   "bugs": {
     "url": "https://github.com/lazier334/open-s9y/issues"
@@ -9,7 +9,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/lazier334/open-s9y.git",
-    "directory": "s9y-server"
+    "directory": "s9y-gateway"
   },
   "license": "MIT",
   "author": "lazier334",
@@ -34,7 +34,6 @@
   ],
   "keywords": [
     "s9y",
-    "server",
     "gateway",
     "websocket",
     "http",

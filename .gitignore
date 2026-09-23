@@ -147,6 +147,6 @@ test
 .claude
 .other
 .vscode
-server.key
-server.crt
+gateway.key
+gateway.crt
 temp.*

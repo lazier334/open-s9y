@@ -1,5 +1,5 @@
 import { Message } from "@open-s9y/sdk";
-import { FunPivot } from "@open-s9y/server";
+import { FunPivot } from "@open-s9y/gateway";
 
 const pluginPivotId = process.env.PLUGIN_PIVOT_ID ?? "router";
 // 负载均衡使用
