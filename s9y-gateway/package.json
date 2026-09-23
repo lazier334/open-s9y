@@ -1,6 +1,6 @@
 {
   "name": "@open-s9y/gateway",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "S9y 网关服务器",
   "homepage": "https://github.com/lazier334/open-s9y#readme",
   "bugs": {

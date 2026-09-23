@@ -1,4 +1,4 @@
-name: Publish Server to npm
+name: Publish Gateway to npm
 
 on:
   workflow_dispatch:
@@ -9,7 +9,7 @@ on:
         type: string
   push:
     tags:
-      - 'server-v*'
+      - 'gateway-v*'
 
 jobs:
   publish:
@@ -28,17 +28,17 @@ jobs:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org/'
 
-      - name: Install Server dependencies
-        working-directory: s9y-server
+      - name: Install Gateway dependencies
+        working-directory: s9y-gateway
         run: npm ci
 
-      - name: Build Server
-        working-directory: s9y-server
+      - name: Build Gateway
+        working-directory: s9y-gateway
         run: npm run build
 
       - name: Update version from input
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.version != ''
-        working-directory: s9y-server
+        working-directory: s9y-gateway
         run: |
           CURRENT_VERSION=$(node -p "require('./package.json').version")
           INPUT_VERSION="${{ github.event.inputs.version }}"
@@ -50,7 +50,7 @@ jobs:
 
       - name: Check version for push tags
         id: version_check
-        working-directory: s9y-server
+        working-directory: s9y-gateway
         run: |
           VERSION=$(node -p "require('./package.json').version")
           MAJOR=$(echo "$VERSION" | cut -d. -f1)
@@ -64,7 +64,7 @@ jobs:
       - name: Check if version exists on npm
         id: check_version
         if: steps.version_check.outputs.skip != 'true'
-        working-directory: s9y-server
+        working-directory: s9y-gateway
         run: |
           PACKAGE_NAME=$(node -p "require('./package.json').name")
           VERSION=$(node -p "require('./package.json').version")
@@ -78,7 +78,7 @@ jobs:
 
       - name: Publish to npm
         if: steps.check_version.outputs.exists != 'true' && steps.version_check.outputs.skip != 'true'
-        working-directory: s9y-server
+        working-directory: s9y-gateway
         run: |
           VERSION=$(node -p "require('./package.json').version")
           if [[ $VERSION == *-* ]]; then
