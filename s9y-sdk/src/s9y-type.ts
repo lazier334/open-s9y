@@ -17,7 +17,7 @@ export class PivotError extends Error {
  * 创建随机 traceId 
  * 如果需要伪uuid可以这样使用 `createTraceId(32,'0123456789abcdef').match(/.{1,4}/g).join('-')`
  */
-export function createTraceId(length: number = 10, characters: string = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz', prefix = 'n.') {
+export function createTraceId(length: number = 10, characters: string = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz', prefix = 'tr.') {
     const result = [];
     for (let i = 0; i < length - prefix.length; i++) {
         result.push(characters.charAt(Math.floor(Math.random() * characters.length)))
@@ -95,7 +95,7 @@ export class Message {
         if (message.receiverId != undefined) this.receiverId = message.receiverId;
         if (message.error != undefined) this.error = message.error;
         this.traceId = message.traceId ?? createTraceId();
-        this.taskId = message.taskId ?? createTraceId(undefined, undefined, 'a.');
+        this.taskId = message.taskId ?? 'ta.' + Date.now();
         this.payload = new MessagePayload(message.payload ?? {});
         if (message.body != undefined) this.body = message.body;
     }

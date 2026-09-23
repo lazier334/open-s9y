@@ -1,6 +1,6 @@
 {
   "name": "@open-s9y/sdk",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "description": "S9y Pivot 通信 SDK",
   "homepage": "https://github.com/lazier334/open-s9y#readme",
   "bugs": {
